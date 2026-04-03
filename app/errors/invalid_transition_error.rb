@@ -1,0 +1,1 @@
+class InvalidTransitionError < StandardError; end
