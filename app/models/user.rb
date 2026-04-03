@@ -1,4 +1,6 @@
 class User < ApplicationRecord
+  include SoftDeletable
+
   has_one  :account, dependent: :destroy
   has_many :orders, dependent: :destroy
 

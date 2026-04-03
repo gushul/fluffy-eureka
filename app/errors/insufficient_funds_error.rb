@@ -1,0 +1,1 @@
+class InsufficientFundsError < ApplicationError; end

@@ -6,7 +6,7 @@ inherit_gem: { rubocop-rails-omakase: rubocop.yml }
 # # Use `[a, [b, c]]` not `[ a, [ b, c ] ]`
 # Layout/SpaceInsideArrayLiteralBrackets:
 #   Enabled: false
-require:
+plugins:
   - rubocop-performance
   - rubocop-rails
   - rubocop-rspec
@@ -18,7 +18,7 @@ AllCops:
     - script/**/*
     - vendor/**/*
     - 'bin/{bundle,rails,rake}'
-  TargetRubyVersion: 3.2.2
+  TargetRubyVersion: 3.4.9
   NewCops: enable
 Bundler/OrderedGems:
   Enabled: false
@@ -223,3 +223,6 @@ Style/TrailingCommaInArrayLiteral:
 
 Style/HashSyntax:
   EnforcedShorthandSyntax: never
+RSpec/ExampleLength:
+  Max: 10
+  

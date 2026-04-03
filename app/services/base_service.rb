@@ -1,6 +1,6 @@
 class BaseService
   class Result
-    attr_reader :success?, :data, :errors
+    attr_reader :success, :data, :errors
 
     def initialize(success: true, data: nil, errors: [])
       @success = success

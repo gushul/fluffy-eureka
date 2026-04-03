@@ -1,11 +1,13 @@
 class Order < ApplicationRecord
   include AASM
+  include SoftDeletable
 
   belongs_to :user
   has_one :account_transaction, dependent: :destroy
 
   validates :amount_cents, numericality: { greater_than: 0 }
   validates :status, presence: true
+  validates :user,   presence: true
 
   aasm column: :status do
     state :created, initial: true

@@ -1,0 +1,1 @@
+class ImmutableRecordError < ApplicationError; end

@@ -1,58 +1,65 @@
 module Orders
-  class Cancel < BaseService
-    def initialize(order: order)
+  class CancelService < BaseService
+    def initialize(order:)
       @order = order
     end
 
     def call
-      return failure("Cannot complete order in status '#{@order.status}'") unless @order.can_cancel?
+      Rails.logger.info "Starting order cancellation for order_id=#{@order.id}"
 
-     ActiveRecord::Base.transaction do
-        # Pessimistic lock — prevents race condition on balance
-        # SELECT * FROM accounts WHERE id = ? FOR UPDATE
-        account = @order.user.account.lock!
-
-        # Validate balance INSIDE the lock (state may have changed)
-        if account.balance_cents < @order.amount_cents
-          raise InsufficientFundsError, "Insufficient funds: " \
-            "balance #{account.balance} < order amount #{@order.amount}"
-        end
-
-        # Deduct balance
-        account.update!(balance_cents: account.balance_cents - @order.amount_cents)
-
-        # Append-only ledger entry (negative = money leaving account)
-        AccountTransaction.create!(
-          account:      account,
-          order:        @order,
-          amount_cents: -@order.amount_cents,
-          kind:         "charge",
-          description:  "Charge for order ##{@order.id}"
-        )
-
-        # Transition status — optimistic lock on order protects
-        # against two concurrent requests completing the same order
-        @order.complete!
-
-        Result.new(success?: true, order: @order, error: nil)
-      end
+      validation_result = validate_transition!
+      return validation_result unless validation_result.success?
 
       ActiveRecord::Base.transaction do
-        account = @order.user.account.lock!
+        if @order.success?
+          # Pessimistic Locking
+          # SELECT * FROM accounts WHERE id = ? FOR UPDATE
+          account = @order.user.account.lock!
 
-        account.update!(balance: account.balance + @order.amount)
 
-        @order.transactions.create!(
-          account: account,
-          amount: -@order.amount,
-          kind: :storno
-        )
+          # Account balance substraction
+          account.update!(balance_cents: account.balance_cents + @order.amount_cents)
 
-        @order.update!(status: :cancelled)
+
+          AccountTransaction.create!(
+            account:      account,
+            order:        @order,
+            amount_cents: @order.amount_cents,
+            kind:         "reversal",
+            description:  "Reversal for cancelled order ##{@order.id}"
+          )
+
+          Rails.logger.info "Applied reversal for order_id=#{@order.id}, " \
+            "returned #{@order.amount_cents} cents to account #{account.id}"
+        end
+
+        # Optimistic lock on order prevents double-cancel
+        @order.cancel!
+
+        Rails.logger.info "Successfully cancelled order_id=#{@order.id}"
+        success(@order)
+      end
+    rescue ActiveRecord::StaleObjectError
+      error_msg = "Order #{@order.id} was modified concurrently during cancellation"
+      Rails.logger.warn error_msg
+      failure(error_msg)
+    rescue => e
+      error_msg = "Unexpected error cancelling order #{@order.id}: #{e.message}"
+      Rails.logger.error error_msg
+      Rails.error.report(e)
+      failure(error_msg)
+    end
+
+    private
+
+    def validate_transition!
+      unless @order.may_cancel?
+        error_msg = "Cannot cancel order #{@order.id} in status '#{@order.status}'"
+        Rails.logger.warn error_msg
+        return failure(error_msg)
       end
 
-      @order
-      sucess
+      success(nil) # Validation passed
     end
   end
 end

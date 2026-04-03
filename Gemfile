@@ -57,7 +57,6 @@ group :development, :test do
   gem "rubocop-rspec"
 end
 group :test do
-  gem "rspec-rails", "~> 8.0"
   gem "rswag-specs"
   gem "rspec-rails", "~> 8.0"
   gem "database_cleaner-active_record"

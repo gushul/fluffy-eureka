@@ -1,6 +1,6 @@
 FactoryBot.define do
   factory :account do
-    user
-    balance { 100.0 }
+    association :user
+    balance_cents { 10_000 }  # $100.00 default
   end
 end

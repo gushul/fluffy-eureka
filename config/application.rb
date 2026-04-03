@@ -35,6 +35,9 @@ module OrdersApp
     #
     # config.time_zone = "Central Time (US & Canada)"
     # config.eager_load_paths << Rails.root.join("extras")
+    # config.autoload_paths << Rails.root.join("app/errors")
+    config.autoload_paths += Dir["#{config.root}/app/errors"]
+    config.eager_load_paths += Dir["#{config.root}/app/errors"]
 
     # Only loads a smaller set of middleware suitable for API only apps.
     # Middleware like session, flash, cookies can be added back manually.
