@@ -1,6 +1,8 @@
 require 'rails_helper'
 
 RSpec.describe Orders::CompleteService do
+  subject(:call) { described_class.new(order).call }
+
   let(:user) { create(:user) }
   let(:account) { create(:account, user: user, balance: 100.0) }
   let(:order) { create(:order, user: user, amount: 20.0, status: :created) }
@@ -9,7 +11,6 @@ RSpec.describe Orders::CompleteService do
     account # ensure account is created before order
   end
 
-  subject(:call) { described_class.new(order).call }
 
   context "when order is in created status and balance is sufficient" do
     it "changes order status to success" do
@@ -17,7 +18,7 @@ RSpec.describe Orders::CompleteService do
     end
 
     it "creates a debit transaction" do
-      expect { call }.to change { Transaction.count }.by(1)
+      expect { call }.to change(Transaction, :count).by(1)
       transaction = Transaction.last
       expect(transaction.account).to eq(account)
       expect(transaction.order).to eq(order)
@@ -42,7 +43,7 @@ RSpec.describe Orders::CompleteService do
     end
 
     it "does not create a transaction" do
-      expect { call rescue nil }.not_to change { Transaction.count }
+      expect { call rescue nil }.not_to change(Transaction, :count)
     end
   end
 
