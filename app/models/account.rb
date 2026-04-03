@@ -5,7 +5,6 @@ class Account < ApplicationRecord
   has_many :account_transactions
 
   validates :balance_cents, numericality: { greater_than_or_equal_to: 0 }
-  validates :user, presence: true
 
   def balance
     balance_cents / 100.0

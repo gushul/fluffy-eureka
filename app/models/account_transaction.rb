@@ -11,8 +11,6 @@ class AccountTransaction < ApplicationRecord
 
   validates :amount_cents, presence: true
   validates :kind, inclusion: { in: KINDS }
-  validates :account_id, presence: true
-  validates :order_id, presence: true
 
   validate :account_and_order_belong_to_same_user
 
