@@ -2,7 +2,7 @@ class Order < ApplicationRecord
   include AASM
 
   belongs_to :user
-  has_many :account_transaction, dependent: :destroy
+  has_one :account_transaction, dependent: :destroy
 
   validates :amount_cents, numericality: { greater_than: 0 }
   validates :status, presence: true
@@ -12,13 +12,13 @@ class Order < ApplicationRecord
     state :success
     state :cancelled
 
-    # created → success: triggers balance deduction
+    # created → success: triggers account balance substraction
     event :complete do
       transitions from: :created, to: :success
     end
 
     # created → cancelled: no financial impact
-    # success → cancelled: triggers reversal
+    # success → cancelled: triggers accout balance strono
     event :cancel do
       transitions from: %i[created success], to: :cancelled
     end

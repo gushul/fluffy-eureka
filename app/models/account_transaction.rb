@@ -10,7 +10,7 @@ class AccountTransaction < ApplicationRecord
   validates :amount_cents, presence: true
   validates :kind, inclusion: { in: KINDS.values }
 
-  # Immutable — financial records must never be altered
+  # Immutable — this records must never be changed or deleted after creation
   before_update  { raise ImmutableRecordError, "AccountTransaction records are immutable" }
   before_destroy { raise ImmutableRecordError, "AccountTransaction records cannot be deleted" }
 
