@@ -255,5 +255,7 @@ components:
     Error:
       type: object
       properties:
-        error:
-          type: string
+        errors:
+          type: array
+          items:
+            type: string
