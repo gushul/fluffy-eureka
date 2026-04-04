@@ -1,5 +1,43 @@
-veversion: "3.9"
-
+# services:
+# db:
+#   image: postgres:16-alpine
+#   environment:
+#     POSTGRES_USER:     postgres
+#     POSTGRES_PASSWORD: postgres
+#   volumes:
+#     - pg_data:/var/lib/postgresql/data
+#   ports:
+#     - "5432:5432"
+#   healthcheck:
+#     test: ["CMD-SHELL", "pg_isready -U postgres"]
+#     interval: 5s
+#     timeout: 5s
+#     retries: 5
+#
+#   app:
+#     build:
+#       context: ./
+#       dockerfile: development.Dockerfile
+#     command: bash -c "rm -f tmp/pids/server.pid && bin/rails s -p 3000 -b '0.0.0.0'"
+#     volumes:
+#       - .:/app
+#       - bundle_cache:/usr/local/bundle
+#     ports:
+#       - "3000:3000"
+# environment:
+#   DB_HOST:     db
+#   DB_PORT:     5432
+#   DB_USERNAME: postgres
+#   DB_PASSWORD: postgres
+#   RAILS_ENV:   development
+# depends_on:
+#   db:
+#     condition: service_healthy
+#
+# volumes:
+#   pg_data:
+#   bundle_cache:
+#
 services:
   db:
     image: postgres:16-alpine
@@ -14,14 +52,15 @@ services:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
-      retries: 5
 
-  app:
-    build: .
-    command: bundle exec rails server -b 0.0.0.0 -p 3000
+  web:
+    build:
+      context: ./
+      dockerfile: development.Dockerfile
+    command: bash -c "rm -f tmp/pids/server.pid && bin/rails s -p 3000 -b '0.0.0.0'"
     volumes:
-      - .:/app
-      - bundle_cache:/usr/local/bundle
+      - .:/usr/src/app
+      - bundle:/usr/local/bundle
     ports:
       - "3000:3000"
     environment:
@@ -36,4 +75,4 @@ services:
 
 volumes:
   pg_data:
-  bundle_cache:
+  bundle:
