@@ -16,6 +16,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_03_130218) do
     t.bigint "amount_cents", null: false
     t.datetime "created_at", null: false
     t.datetime "deleted_at"
+    t.text "description"
     t.string "kind", null: false
     t.integer "order_id", null: false
     t.index ["account_id"], name: "index_account_transactions_on_account_id"

@@ -1,41 +1,97 @@
-require 'rails_helper'
+require "rails_helper"
 
 RSpec.describe Orders::CancelService do
-  subject(:call) { described_class.new(order).call }
+  subject(:result) { described_class.call(order: order) }
 
   let(:user) { create(:user) }
-  let(:account) { create(:account, user: user, balance: 100.0) }
-  let(:order) { create(:order, user: user, amount: 20.0, status: :success) }
 
-  before do
-    account # ensure account is created before order
-  end
+  before { user.account.update!(balance_cents: 10_000) }
 
 
-  context "when order is in success status" do
-    it "changes order status to cancelled" do
-      expect { call }.to change { order.reload.status }.from("success").to("cancelled")
+  describe "cancelling a created order" do
+    let(:order) { create(:order, user: user, amount_cents: 5_000) }
+
+    it "returns success" do
+      expect(result.success?).to be true
     end
 
-    it "creates a storno transaction" do
-      expect { call }.to change(Transaction, :count).by(1)
-      transaction = Transaction.last
-      expect(transaction.account).to eq(account)
-      expect(transaction.order).to eq(order)
-      expect(transaction.amount).to eq(-20.0)
-      expect(transaction.kind).to eq("storno")
+    it "transitions to cancelled" do
+      expect { result }.to change { order.reload.status }.from("created").to("cancelled")
     end
 
-    it "increases account balance by order amount" do
-      expect { call }.to change { account.reload.balance }.by(20.0)
+    it "does NOT touch the balance" do
+      expect { result }.not_to change { user.account.reload.balance_cents }
+    end
+
+    it "does NOT create any transaction" do
+      expect { result }.not_to change(AccountTransaction, :count)
     end
   end
 
-  context "when order is in created status" do
-    let(:order) { create(:order, user: user, amount: 20.0, status: :created) }
+  describe "cancelling a successful order (reversal)" do
+    let(:order) { create(:order, :success, user: user, amount_cents: 5_000) }
 
-    it "raises InvalidTransitionError" do
-      expect { call }.to raise_error(InvalidTransitionError)
+    before do
+      user.account.update!(balance_cents: 5_000)
+      AccountTransaction.create!(
+        account:      user.account,
+        order:        order,
+        amount_cents: -5_000,
+        kind:         "charge"
+      )
+    end
+
+    it "returns success" do
+      expect(result.success?).to be true
+    end
+
+    it "transitions to cancelled" do
+      expect { result }.to change { order.reload.status }.from("success").to("cancelled")
+    end
+
+    it "returns funds to account" do
+      expect { result }.to change { user.account.reload.balance_cents }
+        .from(5_000).to(10_000)
+    end
+
+    it "creates a reversal transaction" do
+      expect { result }.to change(AccountTransaction, :count).by(1)
+    end
+
+    it "reversal has correct attributes" do
+      result
+      reversal = AccountTransaction.last
+      expect(reversal.kind).to eq("reversal")
+      expect(reversal.amount_cents).to eq(5_000)  # positive — money back
+    end
+
+    it "original charge transaction remains unchanged (immutability)" do
+      result
+      charge = AccountTransaction.find_by(kind: "charge")
+      expect(charge.amount_cents).to eq(-5_000)
+    end
+  end
+
+  describe "cancelling an already cancelled order" do
+    let(:order) { create(:order, :cancelled, user: user) }
+
+    it "returns failure" do
+      expect(result.success?).to be false
+    end
+
+    it "includes error message" do
+      expect(result.errors.first).to match(/Cannot cancel order/)
+    end
+  end
+
+  describe "atomicity on reversal" do
+    let(:order) { create(:order, :success, user: user, amount_cents: 5_000) }
+
+    before { user.account.update!(balance_cents: 5_000) }
+
+    it "does not change balance if cancel! raises" do
+      allow_any_instance_of(Order).to receive(:cancel!).and_raise(StandardError)
+      expect { result rescue nil }.not_to change { user.account.reload.balance_cents }
     end
   end
 end

@@ -7,6 +7,7 @@ class CreateAccountTransactions < ActiveRecord::Migration[8.1]
       t.references :account, null: false, foreign_key: true
       t.references :order, null: false, foreign_key: true
       t.bigint     :amount_cents, null: false
+      t.text       :description
 
       # for PostgreSQL, but sqllite doesn't support enums, so we also add a check constraint
       # t.enum :kind, enum_type: :account_transaction_kind, null: false

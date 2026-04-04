@@ -1,57 +1,90 @@
-require 'rails_helper'
+require "rails_helper"
 
 RSpec.describe Orders::CompleteService do
-  subject(:call) { described_class.new(order).call }
+  subject(:result) { described_class.call(order: order) }
 
-  let(:user) { create(:user) }
-  let(:account) { create(:account, user: user, balance: 100.0) }
-  let(:order) { create(:order, user: user, amount: 20.0, status: :created) }
+  let(:user)  { create(:user) }
+  let(:order) { create(:order, user: user, amount_cents: 5_000) }
 
   before do
-    account # ensure account is created before order
+    # Ensure account has balance
+    user.account.update!(balance_cents: 10_000)
   end
 
 
-  context "when order is in created status and balance is sufficient" do
-    it "changes order status to success" do
-      expect { call }.to change { order.reload.status }.from("created").to("success")
+  describe "successful completion" do
+    it "returns success" do
+      expect(result.success?).to be true
     end
 
-    it "creates a debit transaction" do
-      expect { call }.to change(Transaction, :count).by(1)
-      transaction = Transaction.last
-      expect(transaction.account).to eq(account)
-      expect(transaction.order).to eq(order)
-      expect(transaction.amount).to eq(20.0)
-      expect(transaction.kind).to eq("debit")
+    it "transitions order to success" do
+      expect { result }.to change { order.reload.status }.from("created").to("success")
     end
 
-    it "decreases account balance by order amount" do
-      expect { call }.to change { account.reload.balance }.by(-20.0)
+    it "deducts balance from account" do
+      expect { result }.to change { user.account.reload.balance_cents }
+        .from(10_000).to(5_000)
+    end
+
+    it "creates a charge transaction" do
+      expect { result }.to change(AccountTransaction, :count).by(1)
+    end
+
+    it "creates transaction with correct attributes" do
+      result
+      txn = AccountTransaction.last
+      expect(txn.kind).to eq("charge")
+      expect(txn.amount_cents).to eq(-5_000)
+      expect(txn.order_id).to eq(order.id)
+    end
+
+    it "is atomic — order and balance change together" do
+      allow_any_instance_of(Order).to receive(:complete!).and_raise(StandardError)
+      expect { result rescue nil }.not_to change { user.account.reload.balance_cents }
     end
   end
 
-  context "when balance is insufficient" do
-    let(:account) { create(:account, user: user, balance: 10.0) }
+  describe "insufficient funds" do
+    before { user.account.update!(balance_cents: 1_000) }
 
-    it "raises ActiveRecord::RecordInvalid" do
-      expect { call }.to raise_error(ActiveRecord::RecordInvalid)
+    it "returns failure" do
+      expect(result.success?).to be false
+    end
+
+    it "includes error message" do
+      expect(result.errors.first).to match(/Insufficient funds/)
     end
 
     it "does not change order status" do
-      expect { call rescue nil }.not_to change { order.reload.status }
+      expect { result }.not_to change { order.reload.status }
     end
 
-    it "does not create a transaction" do
-      expect { call rescue nil }.not_to change(Transaction, :count)
+    it "does not change balance" do
+      expect { result }.not_to change { user.account.reload.balance_cents }
+    end
+
+    it "does not create transaction" do
+      expect { result }.not_to change(AccountTransaction, :count)
     end
   end
 
-  context "when order is already success" do
-    let(:order) { create(:order, user: user, amount: 20.0, status: :success) }
+  describe "invalid transition" do
+    let(:order) { create(:order, :success, user: user) }
 
-    it "raises InvalidTransitionError" do
-      expect { call }.to raise_error(InvalidTransitionError)
+    it "returns failure" do
+      expect(result.success?).to be false
+    end
+
+    it "includes error message" do
+      expect(result.errors.first).to match(/Cannot complete order/)
+    end
+  end
+
+  describe "already cancelled" do
+    let(:order) { create(:order, :cancelled, user: user) }
+
+    it "returns failure" do
+      expect(result.success?).to be false
     end
   end
 end

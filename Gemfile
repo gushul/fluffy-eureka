@@ -55,6 +55,7 @@ group :development, :test do
   gem "rubocop-rails-omakase", require: false
   gem "rubocop-rails"
   gem "rubocop-rspec"
+  gem "pry"
 end
 group :test do
   gem "rswag-specs"
