@@ -90,7 +90,7 @@ RSpec.describe Orders::CancelService do
     before { user.account.update!(balance_cents: 5_000) }
 
     it "does not change balance if cancel! raises" do
-      allow_any_instance_of(Order).to receive(:cancel!).and_raise(StandardError)
+      allow(order).to receive(:cancel!).and_raise(StandardError)
       expect { result rescue nil }.not_to change { user.account.reload.balance_cents }
     end
   end

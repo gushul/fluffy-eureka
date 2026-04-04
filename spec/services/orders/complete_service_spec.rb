@@ -39,7 +39,7 @@ RSpec.describe Orders::CompleteService do
     end
 
     it "is atomic — order and balance change together" do
-      allow_any_instance_of(Order).to receive(:complete!).and_raise(StandardError)
+      allow(order).to receive(:complete!).and_raise(StandardError)
       expect { result rescue nil }.not_to change { user.account.reload.balance_cents }
     end
   end
