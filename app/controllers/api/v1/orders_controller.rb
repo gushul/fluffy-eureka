@@ -29,9 +29,9 @@ module Api
         result = Orders::CompleteService.call(order: @order)
 
         if result.success?
-          render json: order_json(result.order), status: :ok
+          render json: order_json(result.data), status: :ok
         else
-          render json: { error: result.error }, status: :unprocessable_entity
+          render json: { errors: result.errors }, status: :unprocessable_entity
         end
       end
 
@@ -40,9 +40,9 @@ module Api
         result = Orders::CancelService.call(order: @order)
 
         if result.success?
-          render json: order_json(result.order), status: :ok
+          render json: order_json(result.data), status: :ok
         else
-          render json: { error: result.error }, status: :unprocessable_entity
+          render json: { errors: result.errors }, status: :unprocessable_entity
         end
       end
 

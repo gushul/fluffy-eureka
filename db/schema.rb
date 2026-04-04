@@ -11,18 +11,24 @@
 # It's strongly recommended that you check this file into your version control system.
 
 ActiveRecord::Schema[8.1].define(version: 2026_04_03_130218) do
+  # These are extensions that must be enabled in order to support this database
+  enable_extension "pg_catalog.plpgsql"
+
+  # Custom types defined in this database.
+  # Note that some types may not work with other database engines. Be careful if changing database.
+  create_enum "account_transaction_kind", ["charge", "reversal"]
+
   create_table "account_transactions", force: :cascade do |t|
-    t.integer "account_id", null: false
+    t.bigint "account_id", null: false
     t.bigint "amount_cents", null: false
     t.datetime "created_at", null: false
     t.datetime "deleted_at"
     t.text "description"
-    t.string "kind", null: false
-    t.integer "order_id", null: false
+    t.enum "kind", null: false, enum_type: "account_transaction_kind"
+    t.bigint "order_id", null: false
     t.index ["account_id"], name: "index_account_transactions_on_account_id"
     t.index ["deleted_at"], name: "index_account_transactions_on_deleted_at"
     t.index ["order_id"], name: "index_account_transactions_on_order_id"
-    t.check_constraint "kind IN ('charge', 'reversal')", name: "account_transactions_kind_check"
   end
 
   create_table "accounts", force: :cascade do |t|
@@ -31,7 +37,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_03_130218) do
     t.datetime "deleted_at"
     t.integer "lock_version", default: 0, null: false
     t.datetime "updated_at", null: false
-    t.integer "user_id", null: false
+    t.bigint "user_id", null: false
     t.index ["deleted_at"], name: "index_accounts_on_deleted_at"
     t.index ["user_id"], name: "index_accounts_on_user_id"
     t.check_constraint "balance_cents >= 0", name: "account_balance_positive"
@@ -41,10 +47,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_03_130218) do
     t.bigint "amount_cents", null: false
     t.datetime "created_at", null: false
     t.datetime "deleted_at"
+    t.text "description"
     t.integer "lock_version", default: 0, null: false
     t.string "status", default: "created", null: false
     t.datetime "updated_at", null: false
-    t.integer "user_id", null: false
+    t.bigint "user_id", null: false
     t.index ["user_id"], name: "index_orders_on_user_id"
   end
 

@@ -46,7 +46,7 @@ RSpec.configure do |config|
           Error: {
             type: :object,
             properties: {
-              error: { type: :string },
+              errors: { type: :array, items: { type: :string } },
             },
           },
         },

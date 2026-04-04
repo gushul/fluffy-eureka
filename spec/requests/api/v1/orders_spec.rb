@@ -2,7 +2,9 @@ require "swagger_helper"
 
 RSpec.describe "Api::V1::Orders", type: :request do
   let(:user) { create(:user) }
-  before { user.account.update!(balance_cents: 20_000) }
+
+  before { user.account.update!(balance_cents: 20_000)
+create_list(:order, 2, user: user)  }
 
   path "/api/v1/users/{user_id}/orders" do
     parameter name: :user_id, in: :path, type: :integer, required: true
@@ -13,7 +15,7 @@ RSpec.describe "Api::V1::Orders", type: :request do
 
       response "200", "orders listed" do
         let(:user_id) { user.id }
-        before { create_list(:order, 2, user: user) }
+
         schema type: :array, items: { "$ref" => "#/components/schemas/Order" }
         run_test!
       end
@@ -34,9 +36,9 @@ RSpec.describe "Api::V1::Orders", type: :request do
         type: :object,
         properties: {
           amount:      { type: :number, example: 49.99 },
-          description: { type: :string, example: "Order #1" }
+          description: { type: :string, example: "Order #1" },
         },
-        required: [:amount]
+        required: [ :amount ],
       }
 
       response "201", "order created" do
