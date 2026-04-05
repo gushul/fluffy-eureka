@@ -21,7 +21,7 @@ module Api
         @user = User.find(params[:user_id])
       end
 
-      # TODO move to jbuilder or serializer
+      # TODO: move to jbuilder or serializer
       def account_json(account)
         {
           id:         account.id,
@@ -30,7 +30,7 @@ module Api
         }
       end
 
-      # TODO move to jbuilder or serializer
+      # TODO: move to jbuilder or serializer
       def transaction_json(txn)
         {
           id:         txn.id,

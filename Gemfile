@@ -41,6 +41,9 @@ gem "aasm"
 gem "rswag-api"
 gem "rswag-ui"
 
+gem 'whenever', require: false
+gem 'rdkafka'
+
 group :development, :test do
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
@@ -58,6 +61,7 @@ group :development, :test do
   gem "pry"
   gem "dotenv-rails"
 end
+
 group :test do
   gem "rswag-specs"
   gem "rspec-rails", "~> 8.0"
@@ -67,4 +71,7 @@ group :test do
   gem "shoulda-matchers"
 end
 
-gem "foreman", "~> 0.90.0", group: :development
+group :development do
+  gem "foreman", "~> 0.90.0"
+  gem "annotaterb"
+end

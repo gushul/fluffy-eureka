@@ -1,5 +1,6 @@
 module Orders
   class CancelService < BaseService
+    ACTION = "order_canceled".freeze
     def initialize(order:)
       @order = order
     end
@@ -36,6 +37,9 @@ module Orders
         # Optimistic lock on order prevents double-cancel
         @order.cancel!
 
+        create_audit_log
+        publish_domain_event
+
         Rails.logger.info "Successfully cancelled order_id=#{@order.id}"
         success(@order)
       end
@@ -60,6 +64,25 @@ module Orders
       end
 
       success(nil) # Validation passed
+    end
+
+    def publish_domain_event
+      DomainEvent.publish(ACTION, source: @order)
+    end
+
+    def create_audit_log
+      # TODO: DRY; IMHO move to lib
+      AuditLog.create!(
+        actor:           @actor,
+        entity:          @order,
+        action:          ACTION,
+        changes: {
+          status:        [status_before,  @order.status],
+          balance_cents: [balance_before, account.balance_cents]
+        },
+        ip:              request.remote_ip,
+        user_agent:      request.user_agent
+      )
     end
   end
 end

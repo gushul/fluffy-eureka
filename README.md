@@ -73,8 +73,8 @@ created ──► success ──► cancelled  (reversal transaction created)
 ## Getting Started
 
 ```bash
-git clone https://github.com/gushul/orders-api.git
-cd orders-api
+git clone https://github.com/gushul/laughing-octo-adventure.git
+cd laughing-octo-adventure
 
 cp .env.example .env
 ```
@@ -93,9 +93,115 @@ make db-setup  →  docker compose run --rm web bin/rails db:setup
 make db-seed   →  docker compose run --rm web bin/rails db:seed
 make up        →  docker compose up
 ```
+
+The app will be available at `http://localhost:3000`.
+
+Migrations run automatically on every `docker compose up` via
+the built-in Rails entrypoint `bin/docker-entrypoint` —
+no manual migration step needed after the initial setup.
+
+### Individual commands
+
+```bash
+make build      # build Docker images
+make db-setup   # create database and run migrations
+make db-seed    # seed database with sample data
+make up         # start containers
+```
+
 ---
 
-## Documentation
+## Running Tests
+
+```bash
+docker compose run --rm web bundle exec rspec
+```
+
+---
+
+## Testing with curl
+
+User and account are created by `db:seed` — no registration endpoint exists.
+Use `USER_ID=1` (seeded user) for all requests.
+
+### Check account balance
+
+```bash
+curl -s http://localhost:3000/api/v1/users/1/account | jq
+```
+
+### Create an order
+
+```bash
+curl -s -X POST http://localhost:3000/api/v1/users/1/orders \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 49.99, "description": "Test order"}' | jq
+```
+
+### Complete the order (deducts balance)
+
+```bash
+curl -s -X PATCH http://localhost:3000/api/v1/users/1/orders/1/complete | jq
+```
+
+### Cancel a completed order (creates reversal, returns balance)
+
+```bash
+curl -s -X PATCH http://localhost:3000/api/v1/users/1/orders/1/cancel | jq
+```
+
+### View ledger — all charges and reversals
+
+```bash
+curl -s http://localhost:3000/api/v1/users/1/account/transactions | jq
+```
+
+### Full flow in one script
+
+```bash
+BASE="http://localhost:3000/api/v1/users/1"
+
+# Check initial balance
+curl -s $BASE/account | jq '.balance'
+
+# Create order
+ORDER=$(curl -s -X POST $BASE/orders \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 49.99}')
+ORDER_ID=$(echo $ORDER | jq '.id')
+echo "Order $ORDER_ID created"
+
+# Complete order — balance deducted
+curl -s -X PATCH $BASE/orders/$ORDER_ID/complete | jq '{status, amount}'
+curl -s $BASE/account | jq '.balance'
+
+# Cancel order — reversal created, balance restored
+curl -s -X PATCH $BASE/orders/$ORDER_ID/cancel | jq '{status}'
+curl -s $BASE/account | jq '.balance'
+
+# Ledger — shows charge + reversal
+curl -s $BASE/account/transactions | jq '[.[] | {kind, amount}]'
+```
+
+Expected ledger output after the full flow:
+
+```json
+[
+  { "kind": "reversal", "amount":  49.99 },
+  { "kind": "charge",   "amount": -49.99 }
+]
+```
+
+> `jq` is optional — remove it if not installed. Responses are plain JSON.
+
+
+---
+
+## Swagger UI
+
+```bash
+docker compose run --rm web bundle exec rails rswag
+```
 
 Open `http://localhost:3000/api-docs`.
 
@@ -162,6 +268,33 @@ Optimistic locking is appropriate here because:
 - A clear error and retry is the correct response to the conflict
 
 ---
+
+### Can We Test Locking with RSpec?
+
+**Pessimistic lock** — testing real blocking requires two concurrent
+database connections, which is not practical in RSpec. Instead we test
+the observable outcome: that balance does not go negative and that
+atomicity holds when an error is raised mid-transaction:
+
+```ruby
+it "rolls back balance if order transition raises" do
+  allow_any_instance_of(Order).to receive(:complete!).and_raise(StandardError)
+  expect { service.call rescue nil }.not_to change { account.reload.balance_cents }
+end
+```
+
+**Optimistic lock** — fully testable in RSpec. We increment `lock_version`
+directly in the DB while the service object holds the stale in-memory value:
+
+```ruby
+it "returns a retriable error on concurrent modification" do
+  Order.find(order.id).update_columns(lock_version: order.lock_version + 1)
+
+  result = Orders::CompleteService.new(order: order).call
+  expect(result.success?).to be false
+  expect(result.error).to match(/modified concurrently/)
+end
+```
 
 ---
 

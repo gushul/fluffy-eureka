@@ -26,7 +26,7 @@ module Api
 
       # PATCH /api/v1/users/:user_id/orders/:id/complete
       def complete
-        result = Orders::CompleteService.call(order: @order)
+        result = Orders::CompleteService.call(order: @order, actor: current_user)
 
         if result.success?
           render json: order_json(result.data), status: :ok
@@ -37,7 +37,7 @@ module Api
 
       # PATCH /api/v1/users/:user_id/orders/:id/cancel
       def cancel
-        result = Orders::CancelService.call(order: @order)
+        result = Orders::CancelService.call(order: @order, actor: current_user)
 
         if result.success?
           render json: order_json(result.data), status: :ok
@@ -48,7 +48,7 @@ module Api
 
       private
 
-      # TODO DRY
+      # TODO: DRY
       def set_user
         @user = User.find(params[:user_id])
       end
@@ -57,7 +57,7 @@ module Api
         @order = @user.orders.find(params[:id])
       end
 
-      # TODO move to jbuilder or serializer
+      # TODO: move to jbuilder or serializer
       def order_json(order)
         {
           id:          order.id,
@@ -69,7 +69,7 @@ module Api
         }
       end
 
-      # TODO move to jbuilder or serializer
+      # TODO: move to jbuilder or serializer
       def orders_json(orders)
         orders.map { |o| order_json(o) }
       end

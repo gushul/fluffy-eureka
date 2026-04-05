@@ -1,7 +1,9 @@
 module Orders
   class CompleteService < BaseService
-    def initialize(order:)
+    ACTION = "order_cempleted".freeze
+    def initialize(order:, actor:)
       @order = order
+      @actor: current_user
     end
 
     def call
@@ -22,6 +24,9 @@ module Orders
           return failure(error_msg)
         end
 
+        balance_before = account.balance_cents
+        status_before  = @order.status
+
         # Account balance substraction
         account.update!(balance_cents: account.balance_cents - @order.amount_cents)
 
@@ -36,6 +41,9 @@ module Orders
         # Transition status — optimistic lock on order protects
         # against two concurrent requests completing the same order
         @order.complete!
+
+        create_audit_log
+        publish_domain_event
 
         Rails.logger.info "Successfully completed order_id=#{@order.id}"
         success(@order)
@@ -61,6 +69,25 @@ module Orders
       end
 
       success(nil)
+    end
+
+    def publish_domain_event
+      DomainEvent.publish(ACTION, source: @order)
+    end
+
+    def create_audit_log
+      # TODO: DRY; IMHO move to lib
+      AuditLog.create!(
+        actor:           @actor,
+        entity:          @order,
+        action:          ACTION,
+        changes: {
+          status:        [status_before,  @order.status],
+          balance_cents: [balance_before, account.balance_cents]
+        },
+        ip:              request.remote_ip,
+        user_agent:      request.user_agent
+      )
     end
   end
 end
