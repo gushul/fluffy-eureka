@@ -56,9 +56,9 @@ RSpec.configure do |config|
             in: :header,
             description: "Idempotency key for safe retries (optional)",
             required: false,
-            schema: { type: :string }
-          }
-        }
+            schema: { type: :string },
+          },
+        },
       },
     },
   }
