@@ -76,7 +76,7 @@ class Order < ApplicationRecord
     end
   end
 
-  # TODO: check
+  # TODO: move to drapper or decorator if we want to keep the model focused on persistence
   def amount
     amount_cents / 100.0
   end
