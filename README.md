@@ -17,8 +17,6 @@ an immutable ledger, and soft deletion across all models.
 - [Design Decisions](#design-decisions)
   - [Pessimistic Locking on Account](#pessimistic-locking-on-account)
   - [Optimistic Locking on Order](#optimistic-locking-on-order)
-  - [Can We Test Locking with RSpec?](#can-we-test-locking-with-rspec)
-  - [Why No Idempotency Keys](#why-no-idempotency-keys)
   - [Immutable Ledger and Soft Delete](#immutable-ledger-and-soft-delete)
 
 ---
@@ -34,22 +32,25 @@ User
 
 **Order status transitions:**
 
-```
-created ──► success ──► cancelled  (reversal transaction created)
-   │
-   └────────────────────► cancelled  (no financial impact)
+```text
+created ──► success ──► cancelled          (reversal transaction created)
+   │          │
+   │          └─► refund_requested ──► refund_processing ──► refunded
+   │                                          │
+   │                                          └─► refund_failed ──► refund_requested (retry)
+   └─► cancelled (no financial impact)
 ```
 
 | Transition | Balance effect |
-|------------|---------------|
+|------------|----------------|
 | `created → success` | Deduct `order.amount` from account |
 | `created → cancelled` | No change |
-| `success → cancelled` | Return `order.amount` to account (reversal entry) |
-| Any `→ cancelled` again | Rejected — `422 Unprocessable Entity` |
+| `success → cancelled` | Return `order.amount` to account (reversal) |
+| `success → refund_requested` | No immediate balance change |
+| `refund_processing → refunded` | Return `order.amount` to account |
+| `refund_failed → refund_requested` | No balance change (retry) |
 
 ---
-
-## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -58,15 +59,24 @@ created ──► success ──► cancelled  (reversal transaction created)
 | `GET`   | `/api/v1/users/:user_id/orders/:id` | Get order |
 | `PATCH` | `/api/v1/users/:user_id/orders/:id/complete` | Complete order |
 | `PATCH` | `/api/v1/users/:user_id/orders/:id/cancel` | Cancel order |
+| `PATCH` | `/api/v1/users/:user_id/orders/:id/request_refund` | Request refund |
+| `PATCH` | `/api/v1/users/:user_id/orders/:id/retry_refund` | Retry failed refund |
 | `GET`   | `/api/v1/users/:user_id/account` | Get balance |
 | `GET`   | `/api/v1/users/:user_id/account/transactions` | Ledger history |
 
 ---
 
+## Infrastructure
+
+The application is fully containerized and includes:
+- **PostgreSQL 16**: Primary storage for orders, accounts, and transactions.
+- **Kafka & Zookeeper**: Event streaming backbone (Kafka 7.5.0).
+
 ## Requirements
 
 - Docker 24+
 - Docker Compose v2
+- Kafka (included in docker-compose)
 
 ---
 
@@ -76,7 +86,6 @@ created ──► success ──► cancelled  (reversal transaction created)
 git clone https://github.com/gushul/laughing-octo-adventure.git
 cd laughing-octo-adventure
 
-cp .env.example .env
 ```
 
 Then run everything in one command:
@@ -144,10 +153,16 @@ curl -s -X POST http://localhost:3000/api/v1/users/1/orders \
 curl -s -X PATCH http://localhost:3000/api/v1/users/1/orders/1/complete | jq
 ```
 
-### Cancel a completed order (creates reversal, returns balance)
+### Request a refund
 
 ```bash
-curl -s -X PATCH http://localhost:3000/api/v1/users/1/orders/1/cancel | jq
+curl -s -X PATCH http://localhost:3000/api/v1/users/1/orders/1/request_refund | jq
+```
+
+### Retry a failed refund
+
+```bash
+curl -s -X PATCH http://localhost:3000/api/v1/users/1/orders/1/retry_refund | jq
 ```
 
 ### View ledger — all charges and reversals
@@ -175,11 +190,13 @@ echo "Order $ORDER_ID created"
 curl -s -X PATCH $BASE/orders/$ORDER_ID/complete | jq '{status, amount}'
 curl -s $BASE/account | jq '.balance'
 
-# Cancel order — reversal created, balance restored
-curl -s -X PATCH $BASE/orders/$ORDER_ID/cancel | jq '{status}'
-curl -s $BASE/account | jq '.balance'
+# Request refund
+curl -s -X PATCH $BASE/orders/$ORDER_ID/request_refund | jq '{status}'
 
-# Ledger — shows charge + reversal
+# Retry refund
+curl -s -X PATCH $BASE/orders/$ORDER_ID/retry_refund | jq '{status}'
+
+# Ledger — shows charge + refund
 curl -s $BASE/account/transactions | jq '[.[] | {kind, amount}]'
 ```
 
@@ -187,7 +204,7 @@ Expected ledger output after the full flow:
 
 ```json
 [
-  { "kind": "reversal", "amount":  49.99 },
+  { "kind": "refund",   "amount":  49.99 },
   { "kind": "charge",   "amount": -49.99 }
 ]
 ```
@@ -269,56 +286,6 @@ Optimistic locking is appropriate here because:
 
 ---
 
-### Can We Test Locking with RSpec?
-
-**Pessimistic lock** — testing real blocking requires two concurrent
-database connections, which is not practical in RSpec. Instead we test
-the observable outcome: that balance does not go negative and that
-atomicity holds when an error is raised mid-transaction:
-
-```ruby
-it "rolls back balance if order transition raises" do
-  allow_any_instance_of(Order).to receive(:complete!).and_raise(StandardError)
-  expect { service.call rescue nil }.not_to change { account.reload.balance_cents }
-end
-```
-
-**Optimistic lock** — fully testable in RSpec. We increment `lock_version`
-directly in the DB while the service object holds the stale in-memory value:
-
-```ruby
-it "returns a retriable error on concurrent modification" do
-  Order.find(order.id).update_columns(lock_version: order.lock_version + 1)
-
-  result = Orders::CompleteService.new(order: order).call
-  expect(result.success?).to be false
-  expect(result.error).to match(/modified concurrently/)
-end
-```
-
----
-
-### Why No Idempotency Keys
-
-Idempotency keys are essential when the same operation can be retried by
-an external caller who does not know whether the first attempt succeeded —
-typically in webhook delivery or payment gateway calls.
-
-This project does not need them because:
-
-- All transitions are driven by **explicit user actions** via the API,
-  not by background jobs calling external services
-- The state machine enforces that `created → success` can happen exactly
-  once — a second call returns a clear `422` rather than processing again
-- There is no external gateway call that could succeed on the gateway side
-  but fail on ours — the entire operation is one local database transaction
-- Optimistic locking already handles the concurrency case — exactly one
-  of two racing requests wins, the other gets a retriable error
-
-Idempotency keys become necessary the moment an external payment gateway
-is introduced.
-
----
 
 ### Immutable Ledger and Soft Delete
 
@@ -334,6 +301,27 @@ All four models support soft deletion via a `deleted_at` column and a
 shared `SoftDeletable` concern. Records are never physically removed —
 they are hidden from the default scope but remain queryable via
 `Model.only_deleted` or `Model.with_deleted`.
+### Audit Logging & Outbox Pattern
+
+Every transaction and state change is recorded in the `AuditLog` table:
+- **Traceability**: All logs include `user_id` attribution, `ip_address`, and `user_agent`.
+- **Atomic Persistence**: Audit logs are created within the same DB transaction as the balance mutation.
+- **Reliable Dispatch**: Every audit log triggers an `OutboxEvent` of type `audit_log_created`.
+- **Event-Driven**: The `OutboxJob` periodically picks up pending events and publishes them to Kafka (if configured), ensuring **at-least-once** delivery to downstream consumers (ClickHouse, external APIs).
+
+Each `audit_log_created` payload contains the full audit log as JSON, including before/after state changes of the affected entity.
+
+---
+
+### Ledger Reconciliation
+
+To prevent data corruption, every balance-modifying service (`CompleteService`, `CancelService`, `ProcessRefundService`) performs a real-time reconciliation check:
+- It locks the account row.
+- It sums all `account_transactions` from the database.
+- It compares the sum against the cached `account.balance_cents`.
+- If a discrepancy is found, the operation fails and triggers an alert.
+
+This ensures that the account balance is always backed by an immutable chain of transactions.
 
 For `AccountTransaction`, soft delete is the only permitted mutation:
 the guard allows `deleted_at` to change while rejecting any change to
