@@ -37,12 +37,12 @@ SET default_table_access_method = heap;
 CREATE TABLE public.account_transactions (
     id bigint NOT NULL,
     account_id bigint NOT NULL,
+    order_id bigint NOT NULL,
     amount_cents bigint NOT NULL,
-    created_at timestamp(6) without time zone NOT NULL,
-    deleted_at timestamp(6) without time zone,
     description text,
     kind public.account_transaction_kind NOT NULL,
-    order_id bigint NOT NULL
+    deleted_at timestamp(6) without time zone,
+    created_at timestamp(6) without time zone NOT NULL
 );
 
 
@@ -71,12 +71,12 @@ ALTER SEQUENCE public.account_transactions_id_seq OWNED BY public.account_transa
 
 CREATE TABLE public.accounts (
     id bigint NOT NULL,
+    user_id bigint NOT NULL,
     balance_cents bigint DEFAULT 0 NOT NULL,
-    created_at timestamp(6) without time zone NOT NULL,
     deleted_at timestamp(6) without time zone,
     lock_version integer DEFAULT 0 NOT NULL,
+    created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
-    user_id bigint NOT NULL,
     CONSTRAINT account_balance_positive CHECK ((balance_cents >= 0))
 );
 
@@ -214,14 +214,14 @@ ALTER SEQUENCE public.domain_events_id_seq OWNED BY public.domain_events.id;
 
 CREATE TABLE public.orders (
     id bigint NOT NULL,
+    user_id bigint NOT NULL,
     amount_cents bigint NOT NULL,
-    created_at timestamp(6) without time zone NOT NULL,
-    deleted_at timestamp(6) without time zone,
+    status character varying DEFAULT 'created'::character varying NOT NULL,
     description text,
     lock_version integer DEFAULT 0 NOT NULL,
-    status character varying DEFAULT 'created'::character varying NOT NULL,
+    deleted_at timestamp(6) without time zone,
+    created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL,
-    user_id bigint NOT NULL,
     refund_reason character varying,
     refunded_at timestamp(6) without time zone
 );
@@ -295,10 +295,10 @@ CREATE TABLE public.schema_migrations (
 
 CREATE TABLE public.users (
     id bigint NOT NULL,
-    created_at timestamp(6) without time zone NOT NULL,
-    deleted_at timestamp(6) without time zone,
-    email character varying NOT NULL,
     name character varying NOT NULL,
+    email character varying NOT NULL,
+    deleted_at timestamp(6) without time zone,
+    created_at timestamp(6) without time zone NOT NULL,
     updated_at timestamp(6) without time zone NOT NULL
 );
 
@@ -607,12 +607,12 @@ ALTER TABLE ONLY public.account_transactions
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
-('20260404211443'),
-('20260404201535'),
-('20260404191605'),
-('20260404183509'),
-('20260404130218'),
-('20260404125916'),
-('20260404125317'),
-('20260404124715');
+('20260406055443'),
+('20260406054835'),
+('20260406053509'),
+('20260406051605'),
+('20260406050218'),
+('20260406045916'),
+('20260406045317'),
+('20260406044715');
 
