@@ -40,6 +40,10 @@ FactoryBot.define do
       status { "refund_requested" }
     end
 
+    trait :refund_failed do
+      status { "refund_failed" }
+    end
+
     trait :cancelled do
       status { "cancelled" }
     end
