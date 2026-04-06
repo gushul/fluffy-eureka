@@ -1,8 +1,8 @@
 ## Getting Started
 
 ```bash
-git clone https://github.com/gushul/laughing-octo-adventure.git
-cd laughing-octo-adventure
+git clone https://github.com/gushul/fluffy-eureka.git
+cd fluffy-eureka.git
 
 ```
 
@@ -220,7 +220,7 @@ CompleteService (одна транзакция)
   ├── AuditLog.create!       <- Postgres, партиция текущего месяца
   └── OutboxEvent.create!    <- Postgres, outbox таблица
 
-                    | (каждые 30 сек)
+                    ⬇️ (каждые 30 сек)
 
 OutboxJob
   ├── SELECT ... FOR UPDATE SKIP LOCKED  <- батч 100 событий
@@ -228,16 +228,16 @@ OutboxJob
   ├── GenericProducer.flush              <- батчевая отправка в Kafka
   └── update_all(processed_at: now)     <- только успешно доставленные
 
-                    |
+                    ⬇️
 
 Kafka topic: "audit_logs"
 
-                    |
+                    ⬇️
 
 ClickHouse ← хранит навсегда
   audit_logs table (весь исторический архив)
 
-                    | (в начале каждого месяца)
+                    ⬇️ (в начале каждого месяца)
 
 По крону удаляем старую (позапрошлого месяца) партицию(DROP TABLE) в Postgres, данные уже в ClickHouse.
 И создаем новую партицию для сл. месяца(не текущего).
