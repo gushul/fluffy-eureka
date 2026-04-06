@@ -1,8 +1,9 @@
 module Orders
   class CancelService < BaseService
     ACTION = "order_canceled".freeze
-    def initialize(order:)
+    def initialize(order:, actor:)
       @order = order
+      @actor = actor
     end
 
     def call
@@ -17,11 +18,14 @@ module Orders
           # SELECT * FROM accounts WHERE id = ? FOR UPDATE
           account = @order.user.account.lock!
 
+          @balance_before = account.balance_cents
+          @status_before  = @order.status
 
           # Account balance substraction
           account.update!(balance_cents: account.balance_cents + @order.amount_cents)
 
 
+          # TODO: move to method
           AccountTransaction.create!(
             account:      account,
             order:        @order,
@@ -77,12 +81,18 @@ module Orders
         entity:          @order,
         action:          ACTION,
         changes: {
-          status:        [status_before,  @order.status],
-          balance_cents: [balance_before, account.balance_cents]
+          status:        [@status_before,  @order.status],
+          balance_cents: [@balance_before, @order.account.balance_cents]
         },
         ip:              request.remote_ip,
         user_agent:      request.user_agent
       )
+
+      OutboxEvent.create!(
+        event_type: "audit_log_created",
+        payload: audit.attributes
+      )
+
     end
   end
 end

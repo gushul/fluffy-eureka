@@ -255,6 +255,7 @@ CREATE TABLE public.outbox_events (
     event_type character varying NOT NULL,
     payload jsonb NOT NULL,
     error text,
+    attempts integer DEFAULT 0 NOT NULL,
     processed_at timestamp(6) without time zone,
     created_at timestamp(6) without time zone DEFAULT now() NOT NULL
 );

@@ -1,46 +1,28 @@
 module Orders
-  class CompleteService < BaseService
-    ACTION = "order_completed".freeze
-    def initialize(order:, actor:)
+  class RequestRefundService < BaseService
+    ACTION = "order_request_refund".freeze
+    def initialize(order:, actor:, reason:)
       @order = order
       @actor = actor
+      @reason = reason
     end
 
     def call
-      Rails.logger.info "Starting order completion for order_id=#{@order.id}"
+      Rails.logger.info "Starting order request refund for order_id=#{@order.id}"
 
       validation_result = validate_transition!
       return validation_result unless validation_result.success?
 
       ActiveRecord::Base.transaction do
+
+        @status_before  = @order.status
+
+        @order.update!(refund_reason: @reason)
+        @order.request_refund!
         # Pessimistic Locking
         # SELECT * FROM accounts WHERE id = ? FOR UPDATE
         account = @order.user.account.lock!
 
-        if account.balance_cents < @order.amount_cents
-          error_msg = "Insufficient funds for order #{@order.id}: " \
-                      "balance #{account.balance_cents} < order amount #{@order.amount_cents}"
-          Rails.logger.warn error_msg
-          return failure(error_msg)
-        end
-
-        @balance_before = account.balance_cents
-        @status_before  = @order.status
-
-        # Account balance substraction
-        account.update!(balance_cents: account.balance_cents - @order.amount_cents)
-
-        # TODO: move to method
-        AccountTransaction.create!(
-          account:      account,
-          order:        @order,
-          amount_cents: -@order.amount_cents,
-          kind:         "charge",
-          description:  "Charge for order ##{@order.id}"
-        )
-
-        # Transition status — optimistic lock on order protects
-        # against two concurrent requests completing the same order
         @order.complete!
 
         create_audit_log
@@ -63,8 +45,8 @@ module Orders
     private
 
     def validate_transition!
-      unless @order.may_complete?
-        error_msg = "Cannot complete order #{@order.id} in status '#{@order.status}'"
+      unless @order.may_request_refund?
+        error_msg = "Cannot request refund for order in  #{@order.id} in status '#{@order.status}'"
         Rails.logger.warn error_msg
         return failure(error_msg)
       end
@@ -73,7 +55,7 @@ module Orders
     end
 
     def publish_domain_event
-      DomainEvent.publish(ACTION, source: @order)
+      DomainEvent.publish(ACTION, source: @order, payload: { reason: @reason })
     end
 
     def create_audit_log
@@ -84,7 +66,6 @@ module Orders
         action:          ACTION,
         changes: {
           status:        [@status_before,  @order.status],
-          balance_cents: [@balance_before, @order.account.balance_cents]
         },
         ip:              request.remote_ip,
         user_agent:      request.user_agent

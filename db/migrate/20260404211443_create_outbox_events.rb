@@ -4,6 +4,7 @@ class CreateOutboxEvents < ActiveRecord::Migration[7.1]
       t.string   :event_type,  null: false
       t.jsonb    :payload,     null: false
       t.text     :error
+      t.integer  :attempts, null: false, default: 0
 
       t.datetime :processed_at
       t.datetime :created_at,  null: false, default: -> { "NOW()" }

@@ -2,7 +2,7 @@ namespace :audit_logs do
   task rotate_partitions: :environment do
     conn = ActiveRecord::Base.connection
 
-    now = Time.now.utc
+    now = Time.current
     next_month = now.next_month.beginning_of_month
     old_month  = (now - 2.months).beginning_of_month
 
