@@ -28,8 +28,8 @@ RSpec.describe DomainEventProcessorJob do
       end
 
       it "calls correct subscribers" do
-        expect(Subscribers::NotificationSubscriber).to receive(:call)
-        expect(Subscribers::ReconciliationSubscriber).to receive(:call)
+        expect(NotificationSubscriber).to receive(:call)
+        expect(ReconciliationSubscriber).to receive(:call)
         described_class.new.perform
       end
     end
@@ -38,7 +38,7 @@ RSpec.describe DomainEventProcessorJob do
       let!(:event) { create_event("order.completed", status: "done") }
 
       it "skips done events" do
-        expect(Subscribers::NotificationSubscriber).not_to receive(:call)
+        expect(NotificationSubscriber).not_to receive(:call)
         described_class.new.perform
       end
     end
@@ -47,7 +47,7 @@ RSpec.describe DomainEventProcessorJob do
       let!(:event) { create_event("order.completed") }
 
       before do
-        allow(Subscribers::NotificationSubscriber)
+        allow(NotificationSubscriber)
           .to receive(:call).and_raise(StandardError, "SMTP timeout")
       end
 
@@ -73,8 +73,8 @@ RSpec.describe DomainEventProcessorJob do
       let!(:failed)  { create_event("order.refunded",  status: "failed") }
 
       it "processes only pending events" do
-        allow(Subscribers::NotificationSubscriber).to receive(:call)
-        allow(Subscribers::ReconciliationSubscriber).to receive(:call)
+        allow(NotificationSubscriber).to receive(:call)
+        allow(ReconciliationSubscriber).to receive(:call)
 
         described_class.new.perform
 

@@ -1,6 +1,6 @@
 require "rails_helper"
 
-RSpec.describe Subscribers::AlertSubscriber do
+RSpec.describe AlertSubscriber do
   subject(:call) { described_class.call(payload) }
 
   let(:payload) do

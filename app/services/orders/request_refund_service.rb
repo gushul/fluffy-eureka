@@ -22,7 +22,6 @@ module Orders
         ActiveRecord::Base.transaction do
           @status_before = @order.status
 
-          # PRD 5.332-333
           @order.update!(refund_reason: @reason)
           @order.request_refund!
 
@@ -41,7 +40,6 @@ module Orders
     private
 
     def validate_params!
-      # PRD 5.340
       if @reason.blank?
         return failure("Refund reason is required")
       end

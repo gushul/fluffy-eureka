@@ -61,9 +61,8 @@ RSpec.describe Orders::CancelService do
     end
 
     it "returns success" do
-       if result.failure?
       expect(result.success?).to be true
-       end
+    end
 
     it "transitions to cancelled" do
       expect { result }.to change { order.reload.status }.from("success").to("cancelled")
@@ -114,5 +113,4 @@ RSpec.describe Orders::CancelService do
       expect { result rescue nil }.not_to change { user.account.reload.balance_cents }
     end
   end
-end
 end

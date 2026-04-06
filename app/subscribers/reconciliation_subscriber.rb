@@ -1,7 +1,5 @@
-module Subscribers
   class ReconciliationSubscriber
     def self.call(payload)
-      # PRD 8.568: Create ReconciliationLog
       order_id   = payload["source_id"]
       event_type = payload["event_type"]
       order      = Order.find(order_id)
@@ -14,4 +12,3 @@ module Subscribers
       )
     end
   end
-end

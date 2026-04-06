@@ -1,6 +1,6 @@
 require "rails_helper"
 
-RSpec.describe Subscribers::ReconciliationSubscriber do
+RSpec.describe ReconciliationSubscriber do
   subject(:call) { described_class.call(payload) }
 
   let(:user)  { create(:user) }

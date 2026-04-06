@@ -19,7 +19,6 @@ module Orders
           # Pessimistic Locking
           account = @order.user.account.lock!
 
-          # PRD 5.253 Reconciliation check
           ledger_sum = account.account_transactions.reload.sum(:amount_cents)
           if account.balance_cents != ledger_sum
             return failure("Balance discrepancy detected: account=#{account.balance_cents}, ledger=#{ledger_sum}")
@@ -72,7 +71,6 @@ module Orders
     end
 
     def publish_events(audit_log)
-      # PRD 5.291-292
       DomainEvent.publish(ACTION, source: @order)
       OutboxEvent.create!(event_type: "audit_log_created", payload: audit_log.as_json)
     end

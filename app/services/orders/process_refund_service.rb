@@ -21,22 +21,17 @@ module Orders
             @status_before  = @order.status
             @balance_before = @order.user.account.balance_cents
 
-            # PRD 5.356
             @order.start_refund_processing!
 
-            # PRD 5.357
             account = @order.user.account.lock!
 
-            # PRD 5.253 Reconciliation check
             ledger_sum = account.account_transactions.reload.sum(:amount_cents)
             if account.balance_cents != ledger_sum
               raise "Balance discrepancy detected"
             end
 
-            # PRD 5.358: Increment balance
             account.update!(balance_cents: account.balance_cents + @order.amount_cents)
 
-            # PRD 5.359: Ledger record
             AccountTransaction.create!(
               account:      account,
               order:        @order,
@@ -45,7 +40,6 @@ module Orders
               description:  "Refund for order ##{@order.id}"
             )
 
-            # PRD 5.360-361
             @order.update!(refunded_at: Time.current)
             @order.complete_refund!
 

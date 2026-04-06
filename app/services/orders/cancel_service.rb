@@ -20,9 +20,7 @@ module Orders
           account = @order.user.account.lock!
           @balance_before = account.balance_cents
 
-          # PRD 5.311-312: Handle reversal if already success
           if @status_before == "success"
-            # Reconciliation check
             ledger_sum = account.account_transactions.reload.sum(:amount_cents)
             if account.balance_cents != ledger_sum
               return failure("Balance discrepancy detected (Balance: #{account.balance_cents}, Ledger: #{ledger_sum})")
@@ -37,7 +35,6 @@ module Orders
               kind:         "reversal",
               description:  "Reversal for cancelled order ##{@order.id}"
             )
-            puts "DEBUG: Cancel reversal created id=#{at.id}"
           end
 
           @order.cancel!
@@ -51,17 +48,12 @@ module Orders
     rescue ActiveRecord::StaleObjectError
       failure("Order was modified concurrently")
     rescue => e
-      puts "DEBUG: service failed error=#{e.message}"
       failure(e.message)
     end
 
     private
 
     def validate_transition!
-      puts "DEBUG: order status=#{@order.status}"
-      puts "DEBUG: order state=#{@order.aasm.current_state}"
-      puts "DEBUG: may_cancel=#{@order.may_cancel?}"
-      # PRD 5.310-318: cancel is only for created status
       unless @order.may_cancel?
         return failure("Cannot cancel order from status '#{@order.status}'")
       end

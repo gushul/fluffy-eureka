@@ -1,6 +1,6 @@
 require "rails_helper"
 
-RSpec.describe Subscribers::NotificationSubscriber do
+RSpec.describe NotificationSubscriber do
   subject(:call) { described_class.call(payload) }
 
   let(:user)    { create(:user) }

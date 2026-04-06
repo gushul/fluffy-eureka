@@ -14,7 +14,6 @@ class CreateOutboxEvents < ActiveRecord::Migration[7.1]
     add_index :outbox_events, :event_type
     create_index_for_processed_at
 
-    # PRD 10.667
     create_table :idempotency_keys, id: false do |t|
       t.string :key, primary_key: true
       t.jsonb  :response,   null: false

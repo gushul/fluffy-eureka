@@ -1,10 +1,8 @@
-module Subscribers
   class NotificationSubscriber
     def self.call(payload)
       event_type = payload["event_type"]
       order      = Order.find(payload["source_id"])
 
-      # PRD 8.551: OrderMailer enqueuing
       case event_type
       when "order.completed"
         OrderMailer.completed(order).deliver_later
@@ -21,4 +19,3 @@ module Subscribers
       end
     end
   end
-end

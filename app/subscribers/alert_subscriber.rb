@@ -1,7 +1,5 @@
-module Subscribers
   class AlertSubscriber
     def self.call(payload)
-      # PRD 7.579: AlertService trigger
       order_id = payload["source_id"] || payload["order_id"]
 
       AlertService.trigger(
@@ -10,4 +8,3 @@ module Subscribers
       )
     end
   end
-end

@@ -10,7 +10,7 @@ class BaseService
 
     def success? = @success
     def failure? = !@success
-    def error; @errors.first; end # PRD convenience for single error
+    def error; @errors.first; end
   end
 
   # Class-level entry point
@@ -27,18 +27,15 @@ class BaseService
     Thread.current[:disable_ledger_sync] = true
     return yield if key.blank?
 
-    # PRD 10.675
     idempotency_key = IdempotencyKey.find_by(key: key)
     if idempotency_key
       # Return saved response
-      # PRD 10.676
       data = JSON.parse(idempotency_key.response)
       return Result.new(success: data["success"], data: data["data"], errors: data["errors"])
     end
 
     result = yield
 
-    # PRD 10.679: save response
     IdempotencyKey.create!(
       key:      key,
       response: {

@@ -16,16 +16,15 @@ class CreateAccountTransactions < ActiveRecord::Migration[8.1]
 
     add_index :account_transactions, :deleted_at
 
-    # PRD 3.136: UNIQUE (order_id, kind) WHERE kind = 'charge'
     add_index :account_transactions, [:order_id, :kind],
               unique: true,
               where: "kind = 'charge'",
               name: "unique_charge_per_order"
 
-    # PRD 3.137: UNIQUE (order_id, kind) WHERE kind = 'reversal'
     add_index :account_transactions, [:order_id, :kind],
               unique: true,
               where: "kind = 'reversal'",
               name: "unique_reversal_per_order"
+
   end
 end
