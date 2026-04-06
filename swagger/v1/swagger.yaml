@@ -1,0 +1,261 @@
+---
+openapi: 3.0.1
+info:
+  title: Orders API
+  version: v1
+  description: API for managing orders and account transactions
+paths:
+  "/api/v1/users/{user_id}/account":
+    parameters:
+    - name: user_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: Get account balance
+      tags:
+      - Accounts
+      responses:
+        '200':
+          description: account found
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Account"
+        '404':
+          description: user not found
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/v1/users/{user_id}/account/transactions":
+    parameters:
+    - name: user_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List account transactions
+      tags:
+      - Accounts
+      description: Immutable ledger — returns all charges and reversals
+      responses:
+        '200':
+          description: transactions listed
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/Transaction"
+  "/api/v1/users/{user_id}/orders":
+    parameters:
+    - name: user_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List all orders
+      tags:
+      - Orders
+      responses:
+        '200':
+          description: orders listed
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/Order"
+        '404':
+          description: user not found
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    post:
+      summary: Create an order
+      tags:
+      - Orders
+      parameters: []
+      responses:
+        '201':
+          description: order created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Order"
+        '422':
+          description: invalid params
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                  example: 49.99
+                description:
+                  type: string
+                  example: 'Order #1'
+              required:
+              - amount
+  "/api/v1/users/{user_id}/orders/{id}":
+    parameters:
+    - name: user_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: Get an order
+      tags:
+      - Orders
+      responses:
+        '200':
+          description: order found
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Order"
+        '404':
+          description: order not found
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/v1/users/{user_id}/orders/{id}/complete":
+    parameters:
+    - name: user_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    patch:
+      summary: Complete an order
+      tags:
+      - Orders
+      description: Transitions order from **created** to **success** and deducts balance
+      responses:
+        '200':
+          description: order completed
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Order"
+        '422':
+          description: invalid transition
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/v1/users/{user_id}/orders/{id}/cancel":
+    parameters:
+    - name: user_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    patch:
+      summary: Cancel an order
+      tags:
+      - Orders
+      description: Cancels order. If order was **success**, reversal transaction is
+        created.
+      responses:
+        '200':
+          description: success order cancelled with reversal
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Order"
+        '422':
+          description: already cancelled
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+components:
+  schemas:
+    Order:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          enum:
+          - created
+          - success
+          - cancelled
+        amount:
+          type: number
+          format: float
+        description:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Account:
+      type: object
+      properties:
+        id:
+          type: integer
+        balance:
+          type: number
+          format: float
+        updated_at:
+          type: string
+          format: date-time
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+          enum:
+          - charge
+          - reversal
+        amount:
+          type: number
+          format: float
+        order_id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      properties:
+        errors:
+          type: array
+          items:
+            type: string
