@@ -25,7 +25,7 @@
 FactoryBot.define do
   factory :order do
     association :user
-    amount_cents { 5_000 }  # $50.00 default
+    amount_cents { 5_000 }
     status       { "created" }
 
     trait :success do

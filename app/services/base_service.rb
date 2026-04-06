@@ -24,6 +24,10 @@ class BaseService
   end
 
   def with_idempotency(key)
+    # Kill-switch for callbacks and subscribers.
+    # Check Thread.current[:disable_ledger_sync] in any after_commit
+    # callback that triggers external sync (ledger, analytics, etc.)
+    # to prevent duplicate side-effects on idempotent retries.
     Thread.current[:disable_ledger_sync] = true
     return yield if key.blank?
 

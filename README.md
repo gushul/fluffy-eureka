@@ -1,85 +1,3 @@
-# Orders & Account Transactions
-
-A Ruby on Rails API demonstrating safe financial state management:
-atomic status transitions, balance mutations with database-level locking,
-an immutable ledger, and soft deletion across all models.
-
----
-
-## Table of Contents
-
-- [Domain](#domain)
-- [API Endpoints](#api-endpoints)
-- [Requirements](#requirements)
-- [Getting Started](#getting-started)
-- [Running Tests](#running-tests)
-- [Swagger UI](#swagger-ui)
-- [Design Decisions](#design-decisions)
-  - [Pessimistic Locking on Account](#pessimistic-locking-on-account)
-  - [Optimistic Locking on Order](#optimistic-locking-on-order)
-  - [Immutable Ledger and Soft Delete](#immutable-ledger-and-soft-delete)
-
----
-
-## Domain
-
-```
-User
- ├── has_one  Account          (balance, pessimistic lock)
- ├── has_many Orders           (state machine, optimistic lock)
- └── Orders → has_many AccountTransactions  (immutable ledger)
-```
-
-**Order status transitions:**
-
-```text
-created ──► success ──► cancelled          (reversal transaction created)
-   │          │
-   │          └─► refund_requested ──► refund_processing ──► refunded
-   │                                          │
-   │                                          └─► refund_failed ──► refund_requested (retry)
-   └─► cancelled (no financial impact)
-```
-
-| Transition | Balance effect |
-|------------|----------------|
-| `created → success` | Deduct `order.amount` from account |
-| `created → cancelled` | No change |
-| `success → cancelled` | Return `order.amount` to account (reversal) |
-| `success → refund_requested` | No immediate balance change |
-| `refund_processing → refunded` | Return `order.amount` to account |
-| `refund_failed → refund_requested` | No balance change (retry) |
-
----
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST`  | `/api/v1/users/:user_id/orders` | Create order |
-| `GET`   | `/api/v1/users/:user_id/orders` | List orders |
-| `GET`   | `/api/v1/users/:user_id/orders/:id` | Get order |
-| `PATCH` | `/api/v1/users/:user_id/orders/:id/complete` | Complete order |
-| `PATCH` | `/api/v1/users/:user_id/orders/:id/cancel` | Cancel order |
-| `PATCH` | `/api/v1/users/:user_id/orders/:id/request_refund` | Request refund |
-| `PATCH` | `/api/v1/users/:user_id/orders/:id/retry_refund` | Retry failed refund |
-| `GET`   | `/api/v1/users/:user_id/account` | Get balance |
-| `GET`   | `/api/v1/users/:user_id/account/transactions` | Ledger history |
-
----
-
-## Infrastructure
-
-The application is fully containerized and includes:
-- **PostgreSQL 16**: Primary storage for orders, accounts, and transactions.
-- **Kafka & Zookeeper**: Event streaming backbone (Kafka 7.5.0).
-
-## Requirements
-
-- Docker 24+
-- Docker Compose v2
-- Kafka (included in docker-compose)
-
----
-
 ## Getting Started
 
 ```bash
@@ -88,19 +6,19 @@ cd laughing-octo-adventure
 
 ```
 
-Then run everything in one command:
+Запустить в докер одной командой:
 
 ```bash
 make start
 ```
 
-This runs the following steps in order:
+Или вызвать по отдельности:
 
-```
-make build     →  docker compose build
-make db-setup  →  docker compose run --rm web bin/rails db:setup
-make db-seed   →  docker compose run --rm web bin/rails db:seed
-make up        →  docker compose up
+```bash
+make build     ->  docker compose build
+make db-setup  ->  docker compose run --rm web bin/rails db:prepare
+make db-seed   ->  docker compose run --rm web bin/rails db:seed
+make up        ->  docker compose up
 ```
 
 The app will be available at `http://localhost:3000`.
@@ -118,215 +36,300 @@ make db-seed    # seed database with sample data
 make up         # start containers
 ```
 
----
 
-## Running Tests
 
-```bash
-docker compose run --rm web bundle exec rspec
-```
+## API Endpoints
 
----
+Base path: `/api/v1/users/:user_id`
 
-## Testing with curl
+### Orders
 
-User and account are created by `db:seed` — no registration endpoint exists.
-Use `USER_ID=1` (seeded user) for all requests.
+| Method | Path | Service | Description |
+|--------|------|---------|-------------|
+| `GET` | `/orders` | — | List orders |
+| `GET` | `/orders/:id` | — | Get order |
+| `POST` | `/orders` | — | Create order (status: created) |
+| `PATCH` | `/orders/:id/complete` | `CompleteService` | created → success |
+| `PATCH` | `/orders/:id/cancel` | `CancelService` | created → cancelled |
+| `PATCH` | `/orders/:id/request_refund` | `RequestRefundService` | success → refund_requested |
+| `PATCH` | `/orders/:id/retry_refund` | `RetryRefundService` | refund_failed → refund_requested |
 
-### Check account balance
+### Account
 
-```bash
-curl -s http://localhost:3000/api/v1/users/1/account | jq
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/account` | Balance |
+| `GET` | `/account/transactions` | Ledger history |
 
-### Create an order
-
-```bash
-curl -s -X POST http://localhost:3000/api/v1/users/1/orders \
-  -H "Content-Type: application/json" \
-  -d '{"amount": 49.99, "description": "Test order"}' | jq
-```
-
-### Complete the order (deducts balance)
-
-```bash
-curl -s -X PATCH http://localhost:3000/api/v1/users/1/orders/1/complete | jq
-```
-
-### Request a refund
-
-```bash
-curl -s -X PATCH http://localhost:3000/api/v1/users/1/orders/1/request_refund | jq
-```
-
-### Retry a failed refund
-
-```bash
-curl -s -X PATCH http://localhost:3000/api/v1/users/1/orders/1/retry_refund | jq
-```
-
-### View ledger — all charges and reversals
-
-```bash
-curl -s http://localhost:3000/api/v1/users/1/account/transactions | jq
-```
-
-### Full flow in one script
-
-```bash
-BASE="http://localhost:3000/api/v1/users/1"
-
-# Check initial balance
-curl -s $BASE/account | jq '.balance'
-
-# Create order
-ORDER=$(curl -s -X POST $BASE/orders \
-  -H "Content-Type: application/json" \
-  -d '{"amount": 49.99}')
-ORDER_ID=$(echo $ORDER | jq '.id')
-echo "Order $ORDER_ID created"
-
-# Complete order — balance deducted
-curl -s -X PATCH $BASE/orders/$ORDER_ID/complete | jq '{status, amount}'
-curl -s $BASE/account | jq '.balance'
-
-# Request refund
-curl -s -X PATCH $BASE/orders/$ORDER_ID/request_refund | jq '{status}'
-
-# Retry refund
-curl -s -X PATCH $BASE/orders/$ORDER_ID/retry_refund | jq '{status}'
-
-# Ledger — shows charge + refund
-curl -s $BASE/account/transactions | jq '[.[] | {kind, amount}]'
-```
-
-Expected ledger output after the full flow:
+### Response format — Order
 
 ```json
-[
-  { "kind": "refund",   "amount":  49.99 },
-  { "kind": "charge",   "amount": -49.99 }
-]
+{
+  "id": 1,
+  "status": "success",
+  "amount": 49.99,
+  "description": "Test order",
+  "refund_reason": null,
+  "refunded_at": null,
+  "created_at": "2024-01-01T12:00:00Z",
+  "updated_at": "2024-01-01T12:00:01Z"
+}
 ```
 
-> `jq` is optional — remove it if not installed. Responses are plain JSON.
+### Error format
 
+```json
+{ "error": "Insufficient funds: balance 10.0 < order amount 50.0" }
+```
+
+### HTTP Status codes
+
+| Situation | Code |
+|-----------|------|
+| Success | 200 |
+| Created | 201 |
+| Invalid transition / business rule | 422 |
+| Record not found | 404 |
+| Concurrent modification | 422 |
 
 ---
 
-## Swagger UI
+# Flow
 
-```bash
-docker compose run --rm web bundle exec rails rswag
+## Domain
+
+```
+User
+ ├── has_one   Account
+ ├── has_many  Orders
+ └── has_many  AuditLogs (as actor)
+
+Account
+ ├── belongs_to  User
+ └── has_many    AccountTransactions      <- immutable ledger
+
+Order
+ ├── belongs_to  User
+ └── has_many    AccountTransactions
+
+AccountTransaction                       <- append-only, no update/delete
+ ├── belongs_to  Account
+ └── belongs_to  Order
+
+DomainEvent                              <- внутренняя шина
+ └── belongs_to  source (polymorphic)   <- триггер для подписчиков внутри Rails
+
+OutboxEvent                              <- внешняя шина
+ └── (no associations)                  <- Kafka -> ClickHouse, другие сервисы
+
+AuditLog                                 <- compliance trail, 2 месяца в Postgres
+ ├── belongs_to  actor (polymorphic)    <- User | System
+ └── belongs_to  auditable (polymorphic) <- Order | Account
 ```
 
-Open `http://localhost:3000/api-docs`.
+# Паттерны которые реализованы в проекте:
+
+## State Machine
+
+### Order
+
+```
+                    ┌─────────────────────────────────────┐
+                    │                                     ▼
+[created] ──complete!──► [success] ──request_refund!──► [refund_requested]
+    │                                                        │
+    └──cancel!──► [cancelled]              start_refund_processing!
+                                                        │
+                                               [refund_processing]
+                                                   │         │
+                                         complete_refund! fail_refund!
+                                                   │         │
+                                              [refunded] [refund_failed]
+                                                             │
+                                                       retry_refund!
+                                                             │
+                                                   [refund_requested] (retry)
+```
+
+| Event | From | To | Balance effect |
+|-------|------|----|----------------|
+| `complete!` | created | success | `-= amount` |
+| `cancel!` | created | cancelled | none |
+| `request_refund!` | success | refund_requested | none |
+| `start_refund_processing!` | refund_requested | refund_processing | none |
+| `complete_refund!` | refund_processing | refunded | `+= amount` |
+| `fail_refund!` | refund_processing | refund_failed | rollback |
+| `retry_refund!` | refund_failed | refund_requested | none |
 
 ---
 
-## Design Decisions
+## Event System
 
-### Pessimistic Locking on Account
-
-When an order is completed or cancelled the account balance must be read
-and written atomically. Without a lock two concurrent requests can both
-read the same balance, both pass the "sufficient funds" check, and both
-deduct — resulting in a negative balance:
+### Полная картина одной транзакции
 
 ```
-Request A reads balance: $100  ✓ sufficient
-Request B reads balance: $100  ✓ sufficient
-Request A deducts $100  →  balance: $0
-Request B deducts $100  →  balance: -$100  ← overdraft
+CompleteService (одна DB транзакция)
+ ├── AccountTransaction.create!   ← финансовая запись (immutable ledger)
+ ├── AuditLog.create!             ← кто/что/до/после (compliance, 60 дней)
+ ├── DomainEvent.create!          ← внутренние подписчики Rails
+ └── OutboxEvent.create!          ← Kafka → ClickHouse (навсегда)
 ```
 
-We prevent this with a pessimistic lock (`SELECT FOR UPDATE`):
+### Event Types
+
+| Event | DomainEvent subscribers | OutboxEvent → Kafka topic |
+|-------|------------------------|--------------------------|
+| `order.completed` | Notification, Reconciliation | `order.completed` |
+| `order.cancelled` | Notification | `order.cancelled` |
+| `order.refund_requested` | Notification, RefundWorkflow | `order.refund_requested` |
+| `order.refunded` | Notification, Reconciliation | `order.refunded` |
+| `order.refund_failed` | Notification, Alert | `order.refund_failed` |
+| `order.refund_retried` | Notification | `order.refund_retried` |
+
+---
+## DomainEvent + Subscribe
+
+
+Все подписчики — stateless callable объекты: `SubscriberClass.call(payload)`.  
+Вызываются из `DomainEventProcessorJob`.  
+При ошибке — пробрасывают исключение чтобы job пометил event как `failed`.
+
+### Idempotency
+
+Все подписчики должны быть idempotent.
+
+Требования:
+
+- повторный вызов не должен создавать дубликаты
+- внешние side-effects (email, webhook) должны быть защищены
+
+Рекомендуемые подходы:
+
+- хранить processed_event_ids
+- использовать unique constraints
+- делать операции idempotent по payload
+
+---
+
+## AuditLog + Outbox
+PCI DSS
+
+AuditLog - за два месяца, текущая партиция - Postgres, всегда - ClickHouse(по нормативу 12 месяцев)
+
+CompleteService (одна транзакция)
+  ├── AuditLog.create!       <- Postgres, партиция текущего месяца
+  └── OutboxEvent.create!    <- Postgres, outbox таблица
+
+                    | (каждые 30 сек)
+
+OutboxJob
+  ├── SELECT ... FOR UPDATE SKIP LOCKED  <- батч 100 событий
+  ├── GenericProducer.deliver(topic: "audit_logs", event:)
+  ├── GenericProducer.flush              <- батчевая отправка в Kafka
+  └── update_all(processed_at: now)     <- только успешно доставленные
+
+                    |
+
+Kafka topic: "audit_logs"
+
+                    |
+
+ClickHouse ← хранит навсегда
+  audit_logs table (весь исторический архив)
+
+                    | (в начале каждого месяца)
+
+По крону удаляем старую (позапрошлого месяца) партицию(DROP TABLE) в Postgres, данные уже в ClickHouse.
+И создаем новую партицию для сл. месяца(не текущего).
+
+
+---
+## Idempotency key:
+  Запрос 1: Idempotency-Key: "abc-123"
+    -> find_by("abc-123") → nil
+    -> yield → выполняем CompleteService
+    -> сохраняем результат в IdempotencyKey
+    -> возвращаем result
+
+  Запрос 2 (retry клиента): Idempotency-Key: "abc-123"
+    -> find_by("abc-123") → НАШЛИ
+    -> возвращаем сохранённый результат
+    -> бизнес-логика НЕ выполняется
+
+  Посмотреть импелментацию [`app/services/base_service.rb`](app/services/base_service.rb)
+  Посмотреть использование [`app/services/orders/complete_service.rb`](app/services/orders/complete_service.rb)
+
+Flow
+
+POST /orders/1/complete
+  Idempotency-Key: "uuid-123"
+         |
+  OrdersController#complete
+         |
+  CompleteService.call(order:, actor:, idempotency_key: "uuid-123")
+         |
+  with_idempotency("uuid-123")
+    -> find_by -> nil (первый раз)
+    -> yield -> бизнес-логика
+    -> сохранить в IdempotencyKey
+    -> вернуть Result
+         |
+  render_result(result)
+
+POST /orders/1/complete (retry клиента, сеть моргнула)
+  Idempotency-Key: "uuid-123"
+         |
+  with_idempotency("uuid-123")
+    -> find_by -> НАШЛИ
+    -> вернуть сохранённый Result
+    -> бизнес-логика НЕ выполняется
+    -> деньги НЕ списываются повторно
+
+
+---
+## Immutable Ledger + Soft Delete
+
+AccountTransaction можно только записать. 
+AccountTransaction никогда нельзя обновить или удалить полностью. Это обеспечивается на уровне модели:
 
 ```ruby
-# app/services/orders/complete_service.rb
-account = @order.user.account.lock!
-```
-
-`lock!` blocks the row until the transaction commits. Request B waits,
-then reads the updated balance of $0 and correctly raises
-`InsufficientFundsError`.
-
-Pessimistic locking is the right choice here because:
-- Balance contention is **expected** — every order completion touches it
-- We must read the **current value** before we can validate it
-- The lock scope is narrow — one row, inside a short transaction
-
-See [`app/services/orders/complete_service.rb`](app/services/orders/complete_service.rb)
-and [`app/services/orders/cancel_service.rb`](app/services/orders/cancel_service.rb).
-
----
-
-### Optimistic Locking on Order
-
-The typical race on an order is two Sidekiq workers or two API calls both
-trying to complete the same order simultaneously.
-
-We protect against this with optimistic locking via a `lock_version` column.
-Rails automatically appends `AND lock_version = N` to every UPDATE:
-
-```sql
-UPDATE orders
-SET status = 'success', lock_version = 1
-WHERE id = 42 AND lock_version = 0
-```
-
-If two workers both read `lock_version = 0`, only one UPDATE affects a row.
-The other gets 0 rows updated and Rails raises `ActiveRecord::StaleObjectError`,
-which the service catches and returns as a retriable error.
-
-Optimistic locking is appropriate here because:
-- Concurrent transitions on the **same order** are rare
-- No row is held locked while the request is in flight
-- A clear error and retry is the correct response to the conflict
-
----
-
-
-### Immutable Ledger and Soft Delete
-
-`AccountTransaction` records are append-only. Once written they can never
-be updated or hard-deleted. This is enforced at the model level:
-
-```ruby
-before_update  :guard_immutability   # allows only deleted_at to change
+before_update :guard_immutability # позволяет изменять только `deleted_at`
 before_destroy { raise ImmutableRecordError }
 ```
 
-All four models support soft deletion via a `deleted_at` column and a
-shared `SoftDeletable` concern. Records are never physically removed —
-they are hidden from the default scope but remain queryable via
-`Model.only_deleted` or `Model.with_deleted`.
-### Audit Logging & Outbox Pattern
+Бизнес модели поддерживают мягкое удаление через столбец `deleted_at`
 
-Every transaction and state change is recorded in the `AuditLog` table:
-- **Traceability**: All logs include `user_id` attribution, `ip_address`, and `user_agent`.
-- **Atomic Persistence**: Audit logs are created within the same DB transaction as the balance mutation.
-- **Reliable Dispatch**: Every audit log triggers an `OutboxEvent` of type `audit_log_created`.
-- **Event-Driven**: The `OutboxJob` periodically picks up pending events and publishes them to Kafka (if configured), ensuring **at-least-once** delivery to downstream consumers (ClickHouse, external APIs).
-
-Each `audit_log_created` payload contains the full audit log as JSON, including before/after state changes of the affected entity.
 
 ---
+## Ledger Reconciliation
 
-### Ledger Reconciliation
+Все сервисы, меняющие баланс (`CompleteService`, `CancelService`, `ProcessRefundService`), делают реальную сверку:
 
-To prevent data corruption, every balance-modifying service (`CompleteService`, `CancelService`, `ProcessRefundService`) performs a real-time reconciliation check:
-- It locks the account row.
-- It sums all `account_transactions` from the database.
-- It compares the sum against the cached `account.balance_cents`.
-- If a discrepancy is found, the operation fails and triggers an alert.
+* Блокируют строку аккаунта
+* Суммируют `account_transactions`
+* Сравнивают с `account.balance_cents`
+* При расхождении — операция падает и отправляется алерт
 
-This ensures that the account balance is always backed by an immutable chain of transactions.
+```ruby
+ledger_sum = account.account_transactions.reload.sum(:amount_cents)
+if account.balance_cents != ledger_sum
+  return failure("Balance discrepancy detected: account=#{account.balance_cents}, ledger=#{ledger_sum}")
+end
 
-For `AccountTransaction`, soft delete is the only permitted mutation:
-the guard allows `deleted_at` to change while rejecting any change to
-financial fields such as `amount_cents` or `kind`.
+```
 
-Cancellation is always a new `reversal` entry — never an edit to the
-original `charge`. This preserves a full audit trail and satisfies
-accounting requirements without special tooling.
+Баланс всегда подкреплен неизменяемой цепочкой транзакций.
+
+`AccountTransaction` — только append-only (кроме `deleted_at`). Изменение финансовых полей (`amount_cents`, `kind`) запрещено.
+
+Отмена всегда создаёт новый `reversal`, оригинальный `charge` не меняется — полный аудиторский след и бухгалтерская целостность.
+
+
+## Locking strategy
+
+| Resource | Lock type | Reason |
+|----------|-----------|--------|
+| `Account` | Pessimistic (`lock!`) | Баланс читается до валидации - нельзя работать с устаревшим значением |
+| `Order` | Optimistic (`lock_version`) | Конфликт редкий - двойная обработка одного заказа |
+| `OutboxEvent` | `FOR UPDATE SKIP LOCKED` | Несколько воркеров без конфликтов |
+

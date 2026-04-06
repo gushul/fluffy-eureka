@@ -36,6 +36,11 @@ module Orders
 
     private
 
+    def publish_events(audit_log)
+      DomainEvent.publish(ACTION, source: @order)
+      OutboxEvent.create!(event_type: "audit_log_created", payload: audit_log.as_json)
+    end
+
     def create_audit_log
       AuditLog.create!(
         user:          @order.user,
@@ -46,11 +51,6 @@ module Orders
           status: [ @status_before, @order.status ],
         }
       )
-    end
-
-    def publish_events(audit_log)
-      DomainEvent.publish(ACTION, source: @order)
-      OutboxEvent.create!(event_type: "audit_log_created", payload: audit_log.as_json)
     end
   end
 end

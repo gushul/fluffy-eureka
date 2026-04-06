@@ -18,7 +18,7 @@ RSpec.configure do |config|
             type: :object,
             properties: {
               id:          { type: :integer },
-              status:      { type: :string, enum: %w[created success cancelled refund_requested refund_requested] },
+              status:      { type: :string, enum: %w[created success cancelled refund_requested refund_processing refunded refund_failed] },
               amount:      { type: :number, format: :float },
               description: { type: :string, nullable: true },
               created_at:  { type: :string, format: "date-time" },

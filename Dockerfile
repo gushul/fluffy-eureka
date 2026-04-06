@@ -1,75 +1,69 @@
-# syntax=docker/dockerfile:1
-# check=error=true
+# STEP 1 - build ruby gems
+FROM public.ecr.aws/docker/library/ruby:3.4.9-alpine3.23 AS build
+ARG BUNDLE_GITHUB__COM
+ENV BUNDLE_GITHUB__COM=$BUNDLE_GITHUB__COM
+WORKDIR /
+RUN apk add --no-cache --update \
+        git \
+        postgresql-dev \
+        postgresql-client \
+        make \
+        gcc \
+        libev-dev \
+        gmp-dev \
+        libc-dev \
+        tzdata \
+    && gem update --system --no-document \
+    && gem install bundler
+# Create appuser
+ENV USER=appuser
+ENV UID=10001
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "/nonexistent" \
+    --shell "/sbin/nologin" \
+    --no-create-home \
+    --uid "${UID}" \
+    "${USER}"
 
-# This Dockerfile is designed for production, not development. Use with Kamal or build'n'run by hand:
-# docker build -t rails8_on_docker .
-# docker run -d -p 80:80 -e RAILS_MASTER_KEY=<value from config/master.key> --name rails8_on_docker rails8_on_docker
+COPY --chown=appuser Gemfile* /
+RUN bundle config set --local deployment true \
+    && bundle config set --local frozen true \
+    && bundle config set --local without test:assets:development \
+    && bundle config set --local path vendor/bundle \
+    && bundle install --jobs 3 --retry 3 \
+    && rm -r vendor/bundle/ruby/*/cache/* \
+    && find vendor/bundle/ruby/*/gems/*/ext -name "*.c" -or -name "*.o" -delete
 
-# For a containerized dev environment, see Dev Containers: https://guides.rubyonrails.org/getting_started_with_devcontainer.html
+# STEP 2 - working image with injected gems
+FROM public.ecr.aws/docker/library/ruby:3.2.2-alpine3.17
+RUN apk upgrade pkgconfig
+RUN apk add --no-cache --update \
+        postgresql-client \
+        tzdata \
+    && gem update --system --no-document \
+    && gem install bundler \
+    && mkdir /app
+COPY --from=build /etc/passwd /etc/passwd
+COPY --from=build /etc/group /etc/group
 
-# Make sure RUBY_VERSION matches the Ruby version in .ruby-version
-ARG RUBY_VERSION=3.4.1
-FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
+RUN rm -rf /usr/local/bundle/gems/*/test/rubygems/*.pem
+RUN rm -rf /usr/local/bundle/gems/*/test/rubygems/data/*.pem
+RUN chown appuser /app
+USER appuser:appuser
 
-# Rails app lives here
-WORKDIR /rails
-
-# Install base packages
-RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y curl libjemalloc2 libvips sqlite3 && \
-    rm -rf /var/lib/apt/lists /var/cache/apt/archives
-
-# Set production environment
-ENV RAILS_ENV="production" \
-    BUNDLE_DEPLOYMENT="1" \
-    BUNDLE_PATH="/usr/local/bundle" \
-    BUNDLE_WITHOUT="development"
-
-# Throw-away build stage to reduce size of final image
-FROM base AS build
-
-# Install packages needed to build gems
-RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential git pkg-config && \
-    rm -rf /var/lib/apt/lists /var/cache/apt/archives
-
-# Install application gems
-COPY Gemfile Gemfile.lock ./
-RUN bundle install && \
-    rm -rf ~/.bundle/ "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git && \
-    bundle exec bootsnap precompile --gemfile
-
-# Copy application code
-COPY . .
-
-# Precompile bootsnap code for faster boot times
-RUN bundle exec bootsnap precompile app/ lib/
-
-# Precompiling assets for production without requiring secret RAILS_MASTER_KEY
-# RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile
-
-
-
-
-# Final stage for app image
-FROM base
-
-# Copy built artifacts: gems, application
-COPY --from=build "${BUNDLE_PATH}" "${BUNDLE_PATH}"
-COPY --from=build /rails /rails
-
-# Run and own only the runtime files as a non-root user for security
-RUN groupadd --system --gid 1000 rails && \
-    useradd rails --uid 1000 --gid 1000 --create-home --shell /bin/bash && \
-    chown -R rails:rails db log storage tmp
-USER 1000:1000
-
-# Entrypoint prepares the database.
-ENTRYPOINT ["/rails/bin/docker-entrypoint"]
-
-HEALTHCHECK --interval=15s --timeout=3s --start-period=0s --start-interval=5s --retries=3 \
-  CMD curl -f http://localhost:3000/up || exit 1
-
-# Start server via Thruster by default, this can be overwritten at runtime
-EXPOSE 80
-CMD ["./bin/thrust", "./bin/rails", "server"]
+WORKDIR /app
+ADD --chown=appuser . /app
+COPY --chown=appuser --from=build /vendor/bundle /app/vendor/bundle
+COPY --chown=appuser --from=build /usr/local/bundle/config /usr/local/bundle/config
+ENV BUNDLE_PATH=vendor/bundle
+ARG RAILS_ENV=production
+ENV RAILS_ENV=$RAILS_ENV
+ARG APP_BUILD
+ENV APP_BUILD=$APP_BUILD
+ARG APP_DEPLOYED_AT
+ENV APP_DEPLOYED_AT=$APP_DEPLOYED_AT
+EXPOSE 3020
+ENV PATH="/app/bin:${PATH}"
+CMD ["rails", "server", "-b", "0.0.0.0", "-p", "3020"]

@@ -2,7 +2,7 @@
 # check=error=true
 
 # Make sure RUBY_VERSION matches the Ruby version in .ruby-version
-ARG RUBY_VERSION=3.4.1
+ARG RUBY_VERSION=3.4.9
 FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
 
 # OS Level Dependencies
@@ -16,6 +16,8 @@ RUN --mount=type=cache,target=/var/cache/apt \
     build-essential \
     less \
     git \
+    postgresql-client \
+    libpq-dev \
     libvips \
     curl \
     libjemalloc2 \

@@ -25,8 +25,10 @@ module Orders
           @order.update!(refund_reason: @reason)
           @order.request_refund!
 
-          create_audit_log
-          publish_events
+          audit_log = create_audit_log
+          publish_events(audit_log)
+
+
 
           success(@order)
         end
@@ -55,13 +57,13 @@ module Orders
       success(nil)
     end
 
-    def publish_events
+    def publish_events(audit_log)
       DomainEvent.publish(ACTION, source: @order, payload: { reason: @reason })
-      OutboxEvent.create!(event_type: "audit_log_created", payload: @audit_log.as_json)
+      OutboxEvent.create!(event_type: "audit_log_created", payload: audit_log.as_json)
     end
 
     def create_audit_log
-      @audit_log = AuditLog.create!(
+      audit_log = AuditLog.create!(
         user:       @order.user,
         actor:      @actor,
         entity:      @order,
