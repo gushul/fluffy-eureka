@@ -40,6 +40,17 @@ make up         # start containers
 
 ## API Endpoints
 
+---
+
+## Swagger UI
+
+```bash
+docker compose run --rm web bundle exec rails rswag
+```
+
+Open `http://localhost:3000/api-docs`.
+
+
 Base path: `/api/v1/users/:user_id`
 
 ### Orders

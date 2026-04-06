@@ -19,7 +19,7 @@ build:
 
 .PHONY: db-setup
 db-setup:
-	$(DC) run --rm $(WEB) bin/rails db:setup
+	$(DC) run --rm $(WEB) bin/rails db:drop db:create db:prepare
 
 .PHONY: db-seed
 db-seed:
