@@ -7,7 +7,7 @@ namespace :audit_logs do
     old_month  = (now - 2.months).beginning_of_month
 
     # create next partition
-    conn.execute <<~SQL
+    conn.execute <<~SQL.squish
       CREATE TABLE IF NOT EXISTS audit_logs_#{next_month.strftime('%Y_%m')}
       PARTITION OF audit_logs
       FOR VALUES FROM ('#{next_month}') TO ('#{next_month.next_month}');

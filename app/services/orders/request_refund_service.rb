@@ -1,79 +1,79 @@
 module Orders
   class RequestRefundService < BaseService
-    ACTION = "order_request_refund".freeze
-    def initialize(order:, actor:, reason:)
+    ACTION = "order.refund_requested"
+
+    def initialize(order:, reason:, actor: nil, metadata: {})
       @order = order
-      @actor = actor
+      @actor = actor || @order.user
       @reason = reason
+      @metadata = metadata
     end
 
-    def call
-      Rails.logger.info "Starting order request refund for order_id=#{@order.id}"
+    def call(idempotency_key: nil)
+      with_idempotency(idempotency_key) do
+        Rails.logger.info "Starting order refund request for order_id=#{@order.id}"
 
-      validation_result = validate_transition!
-      return validation_result unless validation_result.success?
+        validation_result = validate_params!
+        return validation_result unless validation_result.success?
 
-      ActiveRecord::Base.transaction do
+        validation_result = validate_transition!
+        return validation_result unless validation_result.success?
 
-        @status_before  = @order.status
+        ActiveRecord::Base.transaction do
+          @status_before = @order.status
 
-        @order.update!(refund_reason: @reason)
-        @order.request_refund!
-        # Pessimistic Locking
-        # SELECT * FROM accounts WHERE id = ? FOR UPDATE
-        account = @order.user.account.lock!
+          # PRD 5.332-333
+          @order.update!(refund_reason: @reason)
+          @order.request_refund!
 
-        @order.complete!
+          create_audit_log
+          publish_events
 
-        create_audit_log
-        publish_domain_event
-
-        Rails.logger.info "Successfully completed order_id=#{@order.id}"
-        success(@order)
+          success(@order)
+        end
       end
     rescue ActiveRecord::StaleObjectError
-      error_msg = "Order #{@order.id} was modified concurrently during completion"
-      Rails.logger.warn error_msg
-      failure(error_msg)
+      failure("Order was modified concurrently")
     rescue => e
-      error_msg = "Unexpected error completing order #{@order.id}: #{e.message}"
-      Rails.logger.error error_msg
-      Rails.error.report(e)
-      failure(error_msg)
+      failure(e.message)
     end
 
     private
 
-    def validate_transition!
-      unless @order.may_request_refund?
-        error_msg = "Cannot request refund for order in  #{@order.id} in status '#{@order.status}'"
-        Rails.logger.warn error_msg
-        return failure(error_msg)
+    def validate_params!
+      # PRD 5.340
+      if @reason.blank?
+        return failure("Refund reason is required")
       end
 
       success(nil)
     end
 
-    def publish_domain_event
+    def validate_transition!
+      unless @order.may_request_refund?
+        return failure("Cannot request refund from status '#{@order.status}'")
+      end
+
+      success(nil)
+    end
+
+    def publish_events
       DomainEvent.publish(ACTION, source: @order, payload: { reason: @reason })
+      OutboxEvent.create!(event_type: "audit_log_created", payload: @audit_log.as_json)
     end
 
     def create_audit_log
-      # TODO: DRY; IMHO move to lib
-      AuditLog.create!(
-        actor:           @actor,
-        entity:          @order,
-        action:          ACTION,
-        changes: {
-          status:        [@status_before,  @order.status],
+      @audit_log = AuditLog.create!(
+        user:       @order.user,
+        actor:      @actor,
+        entity:      @order,
+        action:      ACTION,
+        audit_changes: {
+          status:        [ @status_before, @order.status ],
+          refund_reason: [ nil, @reason ],
         },
-        ip:              request.remote_ip,
-        user_agent:      request.user_agent
-      )
-
-      OutboxEvent.create!(
-        event_type: "audit_log_created",
-        payload: audit.attributes
+        ip_address: @metadata[:ip_address],
+        user_agent: @metadata[:user_agent]
       )
     end
   end

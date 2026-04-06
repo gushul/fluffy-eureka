@@ -22,6 +22,11 @@
 #
 #  fk_rails_...  (user_id => users.id)
 #
+class AuditLog < ApplicationRecord
+  self.primary_key = :id
+  self.implicit_order_column = "created_at"
+end
+
 class Order < ApplicationRecord
   include AASM
   include SoftDeletable
@@ -46,8 +51,9 @@ class Order < ApplicationRecord
     end
 
     # created → cancelled: only without financial impact
+    # success → cancelled: with financial impact (reversal)
     event :cancel do
-      transitions from: :created, to: :cancelled
+      transitions from: [ :created, :success ], to: :cancelled
     end
 
     # success → refund_requested: user requests refund
@@ -67,7 +73,7 @@ class Order < ApplicationRecord
 
     # refund_processing → refund_failed: something went wrong during refund process (e.g. payment gateway API error)
     event :fail_refund do
-      transitions from: :refund_processing, to: :refund_failed
+      transitions from: [ :refund_requested, :refund_processing ], to: :refund_failed
     end
 
     # refund_failed → refund_requested: retry refund process after failure (e.g. transient payment gateway issue)

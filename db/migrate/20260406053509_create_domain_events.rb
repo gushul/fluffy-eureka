@@ -1,6 +1,7 @@
 class CreateDomainEvents < ActiveRecord::Migration[8.1]
   def change
     create_table :domain_events do |t|
+      t.uuid     :event_id,      null: false
       t.string   :event_type,    null: false
 
       t.string   :source_type,   null: false
@@ -15,8 +16,8 @@ class CreateDomainEvents < ActiveRecord::Migration[8.1]
       t.timestamps
     end
 
-    # maybe redundant, but it can speed up queries for events
-    add_index :domain_events, [:source_type, :source_id] 
+    add_index :domain_events, :event_id, unique: true
+    add_index :domain_events, [:source_type, :source_id]
     add_index :domain_events, [:status, :created_at]
     add_index :domain_events, :event_type
   end

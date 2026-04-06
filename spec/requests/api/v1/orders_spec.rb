@@ -3,8 +3,10 @@ require "swagger_helper"
 RSpec.describe "Api::V1::Orders", type: :request do
   let(:user) { create(:user) }
 
-  before { user.account.update!(balance_cents: 20_000)
-create_list(:order, 2, user: user)  }
+  before do
+    top_up_balance(user.account, 20_000)
+    create_list(:order, 2, user: user)
+  end
 
   path "/api/v1/users/{user_id}/orders" do
     parameter name: :user_id, in: :path, type: :integer, required: true
@@ -100,7 +102,7 @@ create_list(:order, 2, user: user)  }
       response "422", "insufficient funds" do
         let(:user_id) { user.id }
         let(:id) do
-          user.account.update!(balance_cents: 0)
+          clear_balance(user.account)
           create(:order, user: user, amount_cents: 5_000).id
         end
         schema "$ref" => "#/components/schemas/Error"
@@ -135,12 +137,21 @@ create_list(:order, 2, user: user)  }
       response "200", "success order cancelled with reversal" do
         let(:user_id) { user.id }
         let(:id) do
+          # 1. Start with 10k.
+          clear_balance(user.account)
+          top_up_balance(user.account, 10_000)
+
           order = create(:order, :success, user: user, amount_cents: 5_000)
-          user.account.update!(balance_cents: 5_000)
+
+          # 2. Charge the order. Ledger becomes 10k - 5k = 5k.
           AccountTransaction.create!(
             account: user.account, order: order,
             amount_cents: -5_000, kind: "charge"
           )
+
+          # 3. Manually sync balance to 5k (ledger sum). bypass callbacks to stay exact.
+          user.account.update_column(:balance_cents, 5_000)
+
           order.id
         end
         schema "$ref" => "#/components/schemas/Order"

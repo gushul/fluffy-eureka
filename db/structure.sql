@@ -127,7 +127,7 @@ CREATE TABLE public.audit_logs (
     entity_id bigint NOT NULL,
     ip_address inet,
     user_agent text,
-    changes jsonb
+    audit_changes jsonb
 )
 PARTITION BY RANGE (created_at);
 
@@ -166,7 +166,26 @@ CREATE TABLE public.audit_logs_2026_04 (
     entity_id bigint NOT NULL,
     ip_address inet,
     user_agent text,
-    changes jsonb
+    audit_changes jsonb
+);
+
+
+--
+-- Name: audit_logs_2026_05; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_logs_2026_05 (
+    id bigint DEFAULT nextval('public.audit_logs_id_seq'::regclass) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    user_id bigint,
+    actor_type character varying NOT NULL,
+    actor_id bigint,
+    action character varying NOT NULL,
+    entity_type character varying NOT NULL,
+    entity_id bigint NOT NULL,
+    ip_address inet,
+    user_agent text,
+    audit_changes jsonb
 );
 
 
@@ -176,6 +195,7 @@ CREATE TABLE public.audit_logs_2026_04 (
 
 CREATE TABLE public.domain_events (
     id bigint NOT NULL,
+    event_id uuid NOT NULL,
     event_type character varying NOT NULL,
     source_type character varying NOT NULL,
     source_id bigint NOT NULL,
@@ -209,6 +229,17 @@ ALTER SEQUENCE public.domain_events_id_seq OWNED BY public.domain_events.id;
 
 
 --
+-- Name: idempotency_keys; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.idempotency_keys (
+    key character varying NOT NULL,
+    response jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: orders; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -218,12 +249,12 @@ CREATE TABLE public.orders (
     amount_cents bigint NOT NULL,
     status character varying DEFAULT 'created'::character varying NOT NULL,
     description text,
+    refund_reason character varying,
+    refunded_at timestamp(6) without time zone,
     lock_version integer DEFAULT 0 NOT NULL,
     deleted_at timestamp(6) without time zone,
     created_at timestamp(6) without time zone NOT NULL,
-    updated_at timestamp(6) without time zone NOT NULL,
-    refund_reason character varying,
-    refunded_at timestamp(6) without time zone
+    updated_at timestamp(6) without time zone NOT NULL
 );
 
 
@@ -281,6 +312,40 @@ ALTER SEQUENCE public.outbox_events_id_seq OWNED BY public.outbox_events.id;
 
 
 --
+-- Name: reconciliation_logs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.reconciliation_logs (
+    id bigint NOT NULL,
+    order_id bigint,
+    event_type character varying,
+    amount numeric,
+    logged_at timestamp(6) without time zone,
+    created_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL
+);
+
+
+--
+-- Name: reconciliation_logs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.reconciliation_logs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: reconciliation_logs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.reconciliation_logs_id_seq OWNED BY public.reconciliation_logs.id;
+
+
+--
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -330,6 +395,13 @@ ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_2026_04 FO
 
 
 --
+-- Name: audit_logs_2026_05; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs ATTACH PARTITION public.audit_logs_2026_05 FOR VALUES FROM ('2026-05-01 02:00:00+02') TO ('2026-06-01 02:00:00+02');
+
+
+--
 -- Name: account_transactions id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -372,6 +444,13 @@ ALTER TABLE ONLY public.outbox_events ALTER COLUMN id SET DEFAULT nextval('publi
 
 
 --
+-- Name: reconciliation_logs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reconciliation_logs ALTER COLUMN id SET DEFAULT nextval('public.reconciliation_logs_id_seq'::regclass);
+
+
+--
 -- Name: users id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -403,11 +482,43 @@ ALTER TABLE ONLY public.ar_internal_metadata
 
 
 --
+-- Name: audit_logs audit_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs
+    ADD CONSTRAINT audit_logs_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_2026_04 audit_logs_2026_04_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_2026_04
+    ADD CONSTRAINT audit_logs_2026_04_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: audit_logs_2026_05 audit_logs_2026_05_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_logs_2026_05
+    ADD CONSTRAINT audit_logs_2026_05_pkey PRIMARY KEY (id, created_at);
+
+
+--
 -- Name: domain_events domain_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.domain_events
     ADD CONSTRAINT domain_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idempotency_keys idempotency_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.idempotency_keys
+    ADD CONSTRAINT idempotency_keys_pkey PRIMARY KEY (key);
 
 
 --
@@ -424,6 +535,14 @@ ALTER TABLE ONLY public.orders
 
 ALTER TABLE ONLY public.outbox_events
     ADD CONSTRAINT outbox_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: reconciliation_logs reconciliation_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reconciliation_logs
+    ADD CONSTRAINT reconciliation_logs_pkey PRIMARY KEY (id);
 
 
 --
@@ -460,7 +579,7 @@ CREATE INDEX audit_logs_2026_04_entity_idx ON public.audit_logs_2026_04 USING bt
 -- Name: audit_logs_2026_04_metadata_gin_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX audit_logs_2026_04_metadata_gin_idx ON public.audit_logs_2026_04 USING gin (changes);
+CREATE INDEX audit_logs_2026_04_metadata_gin_idx ON public.audit_logs_2026_04 USING gin (audit_changes);
 
 
 --
@@ -468,6 +587,34 @@ CREATE INDEX audit_logs_2026_04_metadata_gin_idx ON public.audit_logs_2026_04 US
 --
 
 CREATE INDEX audit_logs_2026_04_user_created_idx ON public.audit_logs_2026_04 USING btree (user_id, created_at DESC);
+
+
+--
+-- Name: audit_logs_2026_05_action_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_2026_05_action_idx ON public.audit_logs_2026_05 USING btree (action);
+
+
+--
+-- Name: audit_logs_2026_05_entity_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_2026_05_entity_idx ON public.audit_logs_2026_05 USING btree (entity_type, entity_id);
+
+
+--
+-- Name: audit_logs_2026_05_metadata_gin_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_2026_05_metadata_gin_idx ON public.audit_logs_2026_05 USING gin (audit_changes);
+
+
+--
+-- Name: audit_logs_2026_05_user_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_logs_2026_05_user_created_idx ON public.audit_logs_2026_05 USING btree (user_id, created_at DESC);
 
 
 --
@@ -503,6 +650,13 @@ CREATE INDEX index_accounts_on_deleted_at ON public.accounts USING btree (delete
 --
 
 CREATE INDEX index_accounts_on_user_id ON public.accounts USING btree (user_id);
+
+
+--
+-- Name: index_domain_events_on_event_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX index_domain_events_on_event_id ON public.domain_events USING btree (event_id);
 
 
 --
@@ -569,6 +723,34 @@ CREATE UNIQUE INDEX index_users_on_email ON public.users USING btree (email);
 
 
 --
+-- Name: unique_charge_per_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX unique_charge_per_order ON public.account_transactions USING btree (order_id, kind) WHERE (kind = 'charge'::public.account_transaction_kind);
+
+
+--
+-- Name: unique_reversal_per_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX unique_reversal_per_order ON public.account_transactions USING btree (order_id, kind) WHERE (kind = 'reversal'::public.account_transaction_kind);
+
+
+--
+-- Name: audit_logs_2026_04_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_2026_04_pkey;
+
+
+--
+-- Name: audit_logs_2026_05_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_logs_pkey ATTACH PARTITION public.audit_logs_2026_05_pkey;
+
+
+--
 -- Name: accounts fk_rails_b1e30bebc8; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -607,10 +789,10 @@ ALTER TABLE ONLY public.account_transactions
 SET search_path TO "$user", public;
 
 INSERT INTO "schema_migrations" (version) VALUES
+('20260406080336'),
 ('20260406055443'),
 ('20260406054835'),
 ('20260406053509'),
-('20260406051605'),
 ('20260406050218'),
 ('20260406045916'),
 ('20260406045317'),

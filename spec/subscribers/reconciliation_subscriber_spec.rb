@@ -1,23 +1,25 @@
 require "rails_helper"
- 
+
 RSpec.describe Subscribers::ReconciliationSubscriber do
+  subject(:call) { described_class.call(payload) }
+
   let(:user)  { create(:user) }
-  let(:order) { create(:order, user: user) }
- 
+  let(:order) { create(:order, user: user, amount_cents: 4999) }
+
   let(:payload) do
     {
-      "order_id"   => order.id,
-      "event_type" => "order.completed",
-      "amount"     => 49.99
+      "source_type" => "Order",
+      "source_id"   => order.id,
+      "event_type"  => "order.completed",
+      "payload"     => { "amount" => 49.99 },
     }
   end
- 
-  subject(:call) { described_class.call(payload) }
- 
+
+
   it "creates a reconciliation log entry" do
     expect { call }.to change(ReconciliationLog, :count).by(1)
   end
- 
+
   it "stores correct attributes" do
     call
     log = ReconciliationLog.last
@@ -26,12 +28,12 @@ RSpec.describe Subscribers::ReconciliationSubscriber do
     expect(log.amount).to      eq(49.99)
     expect(log.logged_at).to   be_present
   end
- 
+
   describe "when ReconciliationLog.create! fails" do
     before do
       allow(ReconciliationLog).to receive(:create!).and_raise(ActiveRecord::RecordInvalid)
     end
- 
+
     it "raises so DomainEventProcessorJob marks event as failed" do
       expect { call }.to raise_error(ActiveRecord::RecordInvalid)
     end

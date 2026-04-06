@@ -16,6 +16,8 @@
 #  index_account_transactions_on_account_id  (account_id)
 #  index_account_transactions_on_deleted_at  (deleted_at)
 #  index_account_transactions_on_order_id    (order_id)
+#  unique_charge_per_order                   (order_id,kind) UNIQUE WHERE (kind = 'charge'::account_transaction_kind)
+#  unique_reversal_per_order                 (order_id,kind) UNIQUE WHERE (kind = 'reversal'::account_transaction_kind)
 #
 # Foreign Keys
 #

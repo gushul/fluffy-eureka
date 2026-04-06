@@ -19,5 +19,7 @@
 class OutboxEvent < ApplicationRecord
   MAX_ATTEMPTS = 3
 
+  validates :event_type, :payload, presence: true
+
   scope :processable, -> { where(processed_at: nil).where("attempts < ?", MAX_ATTEMPTS) }
 end

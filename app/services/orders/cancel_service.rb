@@ -1,98 +1,94 @@
 module Orders
   class CancelService < BaseService
-    ACTION = "order_canceled".freeze
-    def initialize(order:, actor:)
+    ACTION = "order.cancelled"
+
+    def initialize(order:, actor: nil, metadata: {})
       @order = order
-      @actor = actor
+      @actor = actor || @order.user
+      @metadata = metadata
     end
 
-    def call
-      Rails.logger.info "Starting order cancellation for order_id=#{@order.id}"
+    def call(idempotency_key: nil)
+      with_idempotency(idempotency_key) do
+        Rails.logger.info "Starting order cancellation for order_id=#{@order.id}"
 
-      validation_result = validate_transition!
-      return validation_result unless validation_result.success?
+        validation_result = validate_transition!
+        return validation_result unless validation_result.success?
 
-      ActiveRecord::Base.transaction do
-        if @order.success?
-          # Pessimistic Locking
-          # SELECT * FROM accounts WHERE id = ? FOR UPDATE
+        ActiveRecord::Base.transaction do
+          @status_before = @order.status
           account = @order.user.account.lock!
-
           @balance_before = account.balance_cents
-          @status_before  = @order.status
 
-          # Account balance substraction
-          account.update!(balance_cents: account.balance_cents + @order.amount_cents)
+          # PRD 5.311-312: Handle reversal if already success
+          if @status_before == "success"
+            # Reconciliation check
+            ledger_sum = account.account_transactions.reload.sum(:amount_cents)
+            if account.balance_cents != ledger_sum
+              return failure("Balance discrepancy detected (Balance: #{account.balance_cents}, Ledger: #{ledger_sum})")
+            end
 
+            # Reversal
+            account.update!(balance_cents: account.balance_cents + @order.amount_cents)
+            at = AccountTransaction.create!(
+              account:      account,
+              order:        @order,
+              amount_cents: @order.amount_cents,
+              kind:         "reversal",
+              description:  "Reversal for cancelled order ##{@order.id}"
+            )
+            puts "DEBUG: Cancel reversal created id=#{at.id}"
+          end
 
-          # TODO: move to method
-          AccountTransaction.create!(
-            account:      account,
-            order:        @order,
-            amount_cents: @order.amount_cents,
-            kind:         "reversal",
-            description:  "Reversal for cancelled order ##{@order.id}"
-          )
+          @order.cancel!
 
-          Rails.logger.info "Applied reversal for order_id=#{@order.id}, " \
-            "returned #{@order.amount_cents} cents to account #{account.id}"
+          audit_log = create_audit_log
+          publish_events(audit_log)
+
+          success(@order)
         end
-
-        # Optimistic lock on order prevents double-cancel
-        @order.cancel!
-
-        create_audit_log
-        publish_domain_event
-
-        Rails.logger.info "Successfully cancelled order_id=#{@order.id}"
-        success(@order)
       end
     rescue ActiveRecord::StaleObjectError
-      error_msg = "Order #{@order.id} was modified concurrently during cancellation"
-      Rails.logger.warn error_msg
-      failure(error_msg)
+      failure("Order was modified concurrently")
     rescue => e
-      error_msg = "Unexpected error cancelling order #{@order.id}: #{e.message}"
-      Rails.logger.error error_msg
-      Rails.error.report(e)
-      failure(error_msg)
+      puts "DEBUG: service failed error=#{e.message}"
+      failure(e.message)
     end
 
     private
 
     def validate_transition!
+      puts "DEBUG: order status=#{@order.status}"
+      puts "DEBUG: order state=#{@order.aasm.current_state}"
+      puts "DEBUG: may_cancel=#{@order.may_cancel?}"
+      # PRD 5.310-318: cancel is only for created status
       unless @order.may_cancel?
-        error_msg = "Cannot cancel order #{@order.id} in status '#{@order.status}'"
-        Rails.logger.warn error_msg
-        return failure(error_msg)
+        return failure("Cannot cancel order from status '#{@order.status}'")
       end
 
-      success(nil) # Validation passed
+      success(nil)
     end
 
-    def publish_domain_event
+    def publish_events(audit_log)
       DomainEvent.publish(ACTION, source: @order)
+      OutboxEvent.create!(event_type: "audit_log_created", payload: audit_log.as_json)
     end
 
     def create_audit_log
-      # TODO: DRY; IMHO move to lib
+      changes = { status: [ @status_before, @order.status ] }
+      if @status_before == "success"
+        changes[:balance_cents] = [ @balance_before, @order.user.account.balance_cents ]
+      end
+
       AuditLog.create!(
-        actor:           @actor,
-        entity:          @order,
-        action:          ACTION,
-        changes: {
-          status:        [@status_before,  @order.status],
-          balance_cents: [@balance_before, @order.account.balance_cents]
-        },
-        ip:              request.remote_ip,
-        user_agent:      request.user_agent
+        user:          @order.user,
+        actor:         @actor,
+        entity:        @order,
+        action:        ACTION,
+        audit_changes: changes,
+        ip_address:    @metadata[:ip_address],
+        user_agent:    @metadata[:user_agent]
       )
-
-      OutboxEvent.create!(
-        event_type: "audit_log_created",
-        payload: audit.attributes
-      )
-
     end
   end
 end

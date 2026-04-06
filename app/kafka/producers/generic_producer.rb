@@ -20,11 +20,11 @@ module Kafka::Producers
       rescue Rdkafka::RdkafkaError => e
         logger.error("Kafka message delivery failed for topic '#{topic}', key '#{event.aggregate_id}': #{e.message}")
         # TODO realize repeat
-        raise 
+        raise
       end
     rescue StandardError => e
       logger.error("Failed to prepare or deliver Kafka message for topic '#{topic}', key '#{event.aggregate_id}': #{e.message}")
-      raise 
+      raise
     end
   end
 end

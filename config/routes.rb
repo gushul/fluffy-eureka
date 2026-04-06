@@ -15,6 +15,8 @@ Rails.application.routes.draw do
           member do
             patch :complete
             patch :cancel
+            patch :request_refund
+            patch :retry_refund
           end
         end
       end

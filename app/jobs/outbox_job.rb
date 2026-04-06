@@ -7,7 +7,7 @@ class OutboxJob < ApplicationJob
     loop do
       events = OutboxEvent
         .where(processed_at: nil)  # ← не трогаем failed
-        .where("attempts < ?", OutboxEvent::MAX_ATTEMPTS) 
+        .where("attempts < ?", OutboxEvent::MAX_ATTEMPTS)
         .limit(BATCH_SIZE)
         .lock("FOR UPDATE SKIP LOCKED")
 

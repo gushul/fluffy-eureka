@@ -32,6 +32,14 @@ FactoryBot.define do
       status { "success" }
     end
 
+    trait :refunded do
+      status { "refunded" }
+    end
+
+    trait :refund_requested do
+      status { "refund_requested" }
+    end
+
     trait :cancelled do
       status { "cancelled" }
     end
