@@ -44,10 +44,6 @@ make up         # start containers
 
 ## Swagger UI
 
-```bash
-docker compose run --rm web bundle exec rails rswag
-```
-
 Open `http://localhost:3000/api-docs`.
 
 
